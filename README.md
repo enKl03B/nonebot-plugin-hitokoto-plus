@@ -144,6 +144,9 @@ pip install nonebot-plugin-hitokoto-plus
 
 ## 更新日志
 
+### 0.2.1
+修复配置项相关问题
+
 ### 0.2.0
 插件首次发布
 
