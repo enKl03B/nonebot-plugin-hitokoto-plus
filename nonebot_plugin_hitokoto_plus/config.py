@@ -57,6 +57,14 @@ class HitokotoConfig(BaseModel):
             raise ValueError(f"{field_name} 必须为正整数")
         return v
 
+    @field_validator('command_aliases', mode='before')
+    def parse_command_aliases(cls, v):
+        """将逗号分隔的字符串解析为 Set[str]"""
+        if isinstance(v, str):
+            # 按逗号分割，去除空白，过滤空字符串，然后转为集合
+            return {alias.strip() for alias in v.split(',') if alias.strip()}
+        return v
+
     @field_validator('command_aliases')
     def check_command_aliases(cls, v):
         """验证命令别名至少有一个有效值"""
