@@ -84,6 +84,8 @@ pip install nonebot-plugin-hitokoto-plus
 
 ## 配置项
 
+
+可参考仓库根目录的[](./.env.example)文件进行配置
 在 NoneBot2 全局配置文件中（通常是 `.env` 或 `.env.prod` 文件）添加以下配置：
 
 ### 基础配置
