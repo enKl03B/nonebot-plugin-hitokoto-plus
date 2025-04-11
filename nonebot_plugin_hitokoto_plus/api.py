@@ -1,9 +1,7 @@
-from typing import Optional, Dict, Any, List, Union
+from typing import Optional, Dict, Any
 import httpx
 from pydantic import BaseModel, Field
 import asyncio
-import time
-from datetime import datetime
 from nonebot import logger
 from nonebot.compat import model_dump
 
@@ -27,11 +25,11 @@ class HitokotoSentence(BaseModel):
     length: int            # 句子长度
 
     def model_dump(self) -> Dict[str, Any]:
-        """兼容Pydantic v1和v2的方法，将模型转换为字典"""
+        """将模型转换为字典"""
         return model_dump(self)
 
     def dict(self) -> Dict[str, Any]:
-        """向下兼容的字典转换方法"""
+        """兼容Pydantic v1的字典转换方法"""
         return self.model_dump()
 
 class APIError(Exception):
@@ -50,7 +48,6 @@ class HitokotoAPI:
     """一言API客户端
     
     负责与一言API通信，获取句子并进行格式化处理
-    包含简单的请求缓存机制
     """
     
     def __init__(self, api_url: str = "https://v1.hitokoto.cn"):
@@ -62,8 +59,6 @@ class HitokotoAPI:
         self.api_url = api_url
         # 设置较短的超时时间，避免请求卡住
         self.client = httpx.AsyncClient(timeout=10.0)
-        # 简单的缓存实现，格式: {缓存键: {data: 数据, timestamp: 时间戳}}
-        self.cache: Dict[str, Dict[str, Any]] = {}
         # 重试相关设置
         self.max_retries = 3  # 最大重试次数
         self.retry_delay = 1  # 重试延迟（秒）
@@ -73,41 +68,38 @@ class HitokotoAPI:
         await self.client.aclose()
         
     async def get_hitokoto(self, 
-                           sentence_type: Optional[str] = None, 
-                           use_cache: bool = False) -> HitokotoSentence:
+                           sentence_type: Optional[str] = None) -> HitokotoSentence:
         """
         获取一言句子
         
         Args:
             sentence_type: 句子类型，可选 a~l，对应不同分类
-            use_cache: 是否使用缓存
             
         Returns:
             HitokotoSentence: 一言句子对象
-            
-        Raises:
-            RequestError: 请求API失败
-            ResponseError: 处理API响应失败
         """
-        # 构建缓存键
-        cache_key = f"type:{sentence_type}" if sentence_type else "default"
-        
-        # 检查缓存
-        if use_cache and cache_key in self.cache:
-            cache_data = self.cache[cache_key]
-            # 检查缓存是否过期 (1小时)
-            if time.time() - cache_data.get("timestamp", 0) < 3600:
-                try:
-                    return HitokotoSentence(**cache_data["data"])
-                except Exception as e:
-                    logger.warning(f"使用缓存数据失败，将重新请求: {e}")
-                    # 缓存数据异常时，继续进行API请求
+        # 确保类型参数有效
+        if sentence_type:
+            # 确保类型是单个字母
+            if len(sentence_type) > 1:
+                logger.warning(f"类型参数过长，只取第一个字符: {sentence_type[0]}")
+                sentence_type = sentence_type[0]
+            
+            # 确保类型在有效范围内
+            valid_types = "abcdefghijkl"
+            if sentence_type not in valid_types:
+                logger.warning(f"无效的类型参数: {sentence_type}，使用默认类型")
+                sentence_type = None
+            else:
+                pass # 类型有效
         
         # 构建参数
         params = {}
         if sentence_type:
             # API参数c对应句子类型
             params["c"] = sentence_type
+        else:
+            pass # 无需特定参数
             
         # 发送请求，带重试机制
         for retry in range(self.max_retries):
@@ -125,13 +117,6 @@ class HitokotoAPI:
                 # 检查返回数据是否包含必要字段
                 if "hitokoto" not in data:
                     raise ResponseError("API返回的数据缺少必要的字段")
-                
-                # 更新缓存
-                if use_cache:
-                    self.cache[cache_key] = {
-                        "data": data,
-                        "timestamp": time.time()
-                    }
                 
                 # 转换为模型对象并返回
                 try:

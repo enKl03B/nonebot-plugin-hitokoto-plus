@@ -1,6 +1,5 @@
 from typing import Dict, Tuple, Optional
 import time
-from nonebot import logger
 
 class RateLimiter:
     """请求频率限制器"""
