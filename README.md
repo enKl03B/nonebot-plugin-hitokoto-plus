@@ -103,6 +103,9 @@ pip install nonebot-plugin-hitokoto-plus
 
 
 ### 收藏配置
+
+| 配置项 | 类型 | 必填 | 默认值 | 说明 |
+|:-----:|:----:|:---:|:-----:|:----:|
 | MAX_FAVORITES_PER_USER | int | 否 | 100 | 每个用户最大收藏数量 |
 | FAVORITES_PER_PAGE | int | 否 | 5 | 收藏列表每页显示的句子数量 |
 | FAVORITE_TIMEOUT | int | 否 | 60 | 收藏超时时间（秒），在获取句子后多长时间内可以收藏 |
@@ -153,6 +156,7 @@ pip install nonebot-plugin-hitokoto-plus
 - [NoneBot2](https://github.com/nonebot/nonebot2) - 跨平台 Python 异步机器人框架
 - [nonebot-plugin-alconna](https://github.com/nonebot/plugin-alconna) - 强大的命令解析器，实现跨平台支持 
 - [noneBot-plugin-localStore](https://github.com/nonebot/plugin-localstore) - 实现本地数据存储 
+
 以及所有相关项目❤ 
 
 ## 许可证
