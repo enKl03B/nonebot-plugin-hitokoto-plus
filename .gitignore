@@ -174,3 +174,9 @@ pyrightconfig.json
 !.vscode/launch.json
 !.vscode/extensions.json
 !.vscode/*.code-snippets
+
+# 忽略所有.env文件
+*.env
+
+
+
