@@ -270,9 +270,16 @@ favorite_fallback = on_message(
 async def handle_favorite_fallback(event: Event):
     """处理未被主收藏命令匹配到的一言收藏命令"""
     
-    # 提取用户ID
-    user_id = str(getattr(event, "user_id", "unknown"))
-    
+    # 检查权限
+    if not await check_permission(event):
+        return
+
+    # 提取组合键
+    combined_key = _get_combined_key(event)
+    if not combined_key:
+        logger.warning("无法获取组合键，跳过处理")
+        return
+
     # 尝试获取原始消息文本
     message_text = ""
     try:
@@ -296,7 +303,7 @@ async def handle_favorite_fallback(event: Event):
         if match:
             page = int(match.group(1))
         # 修改调用处，传递 event 对象
-        await handle_list_favorites(user_id, event, page)
+        await handle_list_favorites(combined_key, event, page)
         return
     
     if "详情" in message_text:
@@ -306,7 +313,7 @@ async def handle_favorite_fallback(event: Event):
         matches = re.findall(r'(\d+)', message_text)
         if matches:
             indexes = [int(match) for match in matches]
-            await handle_detail_favorite(user_id, indexes)
+            await handle_detail_favorite(combined_key, indexes)
         else:
             logger.info("收藏详情命令缺少序号参数")
             await UniMessage("请指定要查看详情的收藏序号，例如：/一言收藏详情 1").send()
@@ -319,14 +326,14 @@ async def handle_favorite_fallback(event: Event):
         matches = re.findall(r'(\d+)', message_text)
         if matches:
             indexes = [int(match) for match in matches]
-            await handle_delete_favorite(user_id, indexes)
+            await handle_delete_favorite(combined_key, indexes)
         else:
             logger.info("收藏删除命令缺少序号参数")
             await UniMessage("请指定要删除的收藏序号，例如：/一言收藏删除 1").send()
         return
     
     # 默认为添加收藏
-    await handle_add_favorite(user_id)
+    await handle_add_favorite(combined_key)
 
 # 初始化
 driver = get_driver()
@@ -343,11 +350,47 @@ async def on_startup():
     # 加载收藏数据
     await load_favorites()
     
+    # 执行数据迁移（如果需要）
+    await migrate_favorites_format()
+    
     # 启动自动保存任务
     global auto_save_task
     auto_save_task = asyncio.create_task(auto_save_favorites())
 
     logger.info("一言+插件已启动")
+
+async def migrate_favorites_format():
+    """检查并迁移旧的收藏数据格式到新的 combined_key 格式"""
+    global user_favorites
+    # 检查是否需要迁移 (简单检查第一个键是否包含 ':')
+    needs_migration = False
+    if user_favorites:
+        first_key = next(iter(user_favorites.keys()))
+        if ":" not in str(first_key):
+            needs_migration = True
+            
+    if needs_migration:
+        logger.info("检测到旧版收藏数据格式，开始迁移...")
+        migrated_favorites = {}
+        # 默认迁移到 "legacy:" 前缀，表示来源未知
+        default_prefix = "legacy:"
+        count = 0
+        for old_key, fav_list in user_favorites.items():
+            new_key = f"{default_prefix}{old_key}"
+            migrated_favorites[new_key] = fav_list
+            count += len(fav_list)
+        
+        user_favorites = migrated_favorites
+        logger.info(f"收藏数据迁移完成，共迁移 {len(user_favorites)} 个用户的 {count} 条记录")
+        
+        # 立即保存迁移后的数据
+        try:
+            await save_favorites()
+            logger.info("已保存迁移后的收藏数据")
+        except Exception as e:
+            logger.error(f"保存迁移后的收藏数据失败: {e}")
+    else:
+        logger.info("收藏数据格式无需迁移")
 
 def get_current_config():
     """获取最新的配置"""
@@ -637,6 +680,19 @@ async def handle_hitokoto(matcher: Matcher):
         # 获取当前上下文
         from nonebot.matcher import current_event
         
+        # 获取事件和组合键
+        event = current_event.get()
+        combined_key = _get_combined_key(event)
+        if not combined_key:
+            logger.warning("无法获取组合键，跳过处理")
+            # 即使无法获取键，也可能需要发送消息，根据策略决定是否return
+            # 此处选择发送错误信息
+            try:
+                await UniMessage("获取用户信息失败，无法完成操作").send()
+            except:
+                pass
+            return
+        
         # 直接尝试获取一言并发送
         logger.debug("开始获取一言并发送")
         
@@ -647,63 +703,59 @@ async def handle_hitokoto(matcher: Matcher):
         message = api.format_sentence(sentence, with_source=True, with_author=True)
         
         # 保存最后获取的句子和时间戳，供收藏功能使用
-        user_id = None
         try:
-            event = current_event.get()
-            if hasattr(event, "user_id"):
-                user_id = str(event.user_id)
-                # 保存用户的最后句子，包含时间戳
-                # 转换为字典进行存储
-                sentence_dict = {}
-                if isinstance(sentence, HitokotoSentence): # Pydantic 模型
-                    # 直接手动构建字典，避免 Pydantic 版本兼容性问题
-                    sentence_dict = {
-                        "id": getattr(sentence, "id", 0),
-                        "uuid": getattr(sentence, "uuid", ""),
-                        "hitokoto": getattr(sentence, "hitokoto", ""),
-                        "type": getattr(sentence, "type", ""),
-                        "from": getattr(sentence, "from_", ""), # 注意这里的别名
-                        "from_who": getattr(sentence, "from_who", None),
-                        "creator": getattr(sentence, "creator", ""),
-                        "creator_uid": getattr(sentence, "creator_uid", 0),
-                        "reviewer": getattr(sentence, "reviewer", 0),
-                        "commit_from": getattr(sentence, "commit_from", ""),
-                        "created_at": getattr(sentence, "created_at", ""),
-                        "length": getattr(sentence, "length", 0)
-                    }
-                elif isinstance(sentence, dict):
-                    # 如果已经是字典，直接使用
-                    sentence_dict = sentence
-                else:
-                    # 其他类型，尝试转换为字典或简化存储
-                    logger.debug(f"获取到的句子类型未知 ({type(sentence)})，尝试转换") # 保留此日志
-                    try:
-                        sentence_dict = dict(sentence) # 尝试通用转换
-                    except Exception as e:
-                        logger.warning(f"无法将未知类型转换为字典: {e}，仅存储 hitokoto 文本")
-                        sentence_dict = {
-                            "hitokoto": str(sentence)
-                        }
-
-                # 确保 sentence_dict 是有效的字典
-                if not isinstance(sentence_dict, dict):
-                    logger.error("最终未能生成有效的字典用于存储 last_sentence，将使用空字典")
-                    sentence_dict = {}
-
-                last_sentences[user_id] = {
-                    "sentence": sentence_dict,
-                    "timestamp": time.time()
+            # 保存用户的最后句子，包含时间戳
+            # 转换为字典进行存储
+            sentence_dict = {}
+            if isinstance(sentence, HitokotoSentence): # Pydantic 模型
+                # 直接手动构建字典，避免 Pydantic 版本兼容性问题
+                sentence_dict = {
+                    "id": getattr(sentence, "id", 0),
+                    "uuid": getattr(sentence, "uuid", ""),
+                    "hitokoto": getattr(sentence, "hitokoto", ""),
+                    "type": getattr(sentence, "type", ""),
+                    "from": getattr(sentence, "from_", ""), # 注意这里的别名
+                    "from_who": getattr(sentence, "from_who", None),
+                    "creator": getattr(sentence, "creator", ""),
+                    "creator_uid": getattr(sentence, "creator_uid", 0),
+                    "reviewer": getattr(sentence, "reviewer", 0),
+                    "commit_from": getattr(sentence, "commit_from", ""),
+                    "created_at": getattr(sentence, "created_at", ""),
+                    "length": getattr(sentence, "length", 0)
                 }
-                
-                # 添加收藏提示
-                command_prefix = "/"  # 默认前缀
+            elif isinstance(sentence, dict):
+                # 如果已经是字典，直接使用
+                sentence_dict = sentence
+            else:
+                # 其他类型，尝试转换为字典或简化存储
+                logger.debug(f"获取到的句子类型未知 ({type(sentence)})，尝试转换") # 保留此日志
                 try:
-                    if hasattr(driver, "config") and hasattr(driver.config, "COMMAND_START"):
-                        command_prefix = driver.config.COMMAND_START[0] if driver.config.COMMAND_START else "/"
-                except:
-                    pass
-                
-                message += f"\n\n在 {config.favorite_timeout} 秒内发送{command_prefix}一言收藏可收藏该句"
+                    sentence_dict = dict(sentence) # 尝试通用转换
+                except Exception as e:
+                    logger.warning(f"无法将未知类型转换为字典: {e}，仅存储 hitokoto 文本")
+                    sentence_dict = {
+                        "hitokoto": str(sentence)
+                    }
+
+            # 确保 sentence_dict 是有效的字典
+            if not isinstance(sentence_dict, dict):
+                logger.error("最终未能生成有效的字典用于存储 last_sentence，将使用空字典")
+                sentence_dict = {}
+
+            last_sentences[combined_key] = {
+                "sentence": sentence_dict,
+                "timestamp": time.time()
+            }
+            
+            # 添加收藏提示
+            command_prefix = "/"  # 默认前缀
+            try:
+                if hasattr(driver, "config") and hasattr(driver.config, "COMMAND_START"):
+                    command_prefix = driver.config.COMMAND_START[0] if driver.config.COMMAND_START else "/"
+            except:
+                pass
+            
+            message += f"\n\n在 {config.favorite_timeout} 秒内发送{command_prefix}一言收藏可收藏该句"
         except Exception as e:
             logger.warning(f"保存用户最后句子失败: {e}")
         
@@ -725,8 +777,12 @@ async def handle_favorite(matcher: Matcher, event: Event):
     """处理收藏命令"""
     logger.debug("收藏命令被调用")
     
-    # 提取用户ID
-    user_id = str(getattr(event, "user_id", "unknown"))
+    # 提取组合键
+    combined_key = _get_combined_key(event)
+    if not combined_key:
+        logger.warning("无法获取组合键，跳过处理")
+        await UniMessage("获取用户信息失败，无法完成操作").send()
+        return
     
     # 尝试获取原始消息文本
     message_text = ""
@@ -770,17 +826,17 @@ async def handle_favorite(matcher: Matcher, event: Event):
         # 检查是否有列表子命令
         if hasattr(alconna_result, "subcommands") and "列表" in alconna_result.subcommands:
             page = alconna_result.subcommands["列表"].get("page")
-            await handle_list_favorites(user_id, event, page)
+            await handle_list_favorites(combined_key, event, page)
             return
         # 检查是否有删除子命令
         elif hasattr(alconna_result, "subcommands") and "删除" in alconna_result.subcommands:
             indexes = alconna_result.subcommands["删除"].get("indexes")
-            await handle_delete_favorite(user_id, indexes)
+            await handle_delete_favorite(combined_key, indexes)
             return
         # 检查是否有详情子命令
         elif hasattr(alconna_result, "subcommands") and "详情" in alconna_result.subcommands:
             indexes = alconna_result.subcommands["详情"].get("indexes")
-            await handle_detail_favorite(user_id, indexes)
+            await handle_detail_favorite(combined_key, indexes)
             return
     
     # 如果Alconna解析失败，使用文本解析作为后备
@@ -791,7 +847,7 @@ async def handle_favorite(matcher: Matcher, event: Event):
         match = re.search(r'列表\s*(\d+)', message_text)
         if match:
             page = int(match.group(1))
-        await handle_list_favorites(user_id, event, page)
+        await handle_list_favorites(combined_key, event, page)
         return
     
     if "详情" in message_text:
@@ -801,7 +857,7 @@ async def handle_favorite(matcher: Matcher, event: Event):
         matches = re.findall(r'(\d+)', message_text)
         if matches:
             indexes = [int(match) for match in matches]
-            await handle_detail_favorite(user_id, indexes)
+            await handle_detail_favorite(combined_key, indexes)
         else:
             logger.info("收藏详情命令缺少序号参数")
             await UniMessage("请指定要查看详情的收藏序号，例如：/一言收藏详情 1").send()
@@ -814,29 +870,29 @@ async def handle_favorite(matcher: Matcher, event: Event):
         matches = re.findall(r'(\d+)', message_text)
         if matches:
             indexes = [int(match) for match in matches]
-            await handle_delete_favorite(user_id, indexes)
+            await handle_delete_favorite(combined_key, indexes)
         else:
             logger.info("收藏删除命令缺少序号参数")
             await UniMessage("请指定要删除的收藏序号，例如：/一言收藏删除 1").send()
         return
     
     # 默认为添加收藏
-    await handle_add_favorite(user_id)
+    await handle_add_favorite(combined_key)
 
-async def handle_add_favorite(user_id: str):
+async def handle_add_favorite(combined_key: str):
     """添加收藏处理"""
     try:
         # 获取最新配置
         config = get_current_config()
         
-        if user_id not in last_sentences:
+        if combined_key not in last_sentences:
             msg = "没有可收藏的句子，请先使用 /一言 获取一条句子"
             await UniMessage(msg).send()
             return
         
         # 检查是否超时
         current_time = time.time()
-        last_data = last_sentences[user_id]
+        last_data = last_sentences[combined_key]
         
         if "timestamp" not in last_data:
             # 兼容旧版数据
@@ -863,24 +919,24 @@ async def handle_add_favorite(user_id: str):
         sentence = last_data["sentence"]
         
         # 初始化用户收藏列表
-        if user_id not in user_favorites:
-            user_favorites[user_id] = []
+        if combined_key not in user_favorites:
+            user_favorites[combined_key] = []
         
         # 检查是否已经收藏
-        for fav in user_favorites[user_id]:
+        for fav in user_favorites[combined_key]:
             if fav.get("id") == sentence.get("id"):
                 msg = "该句子已经在收藏中了"
                 await UniMessage(msg).send()
                 return
         
         # 检查是否超过最大收藏数量
-        if len(user_favorites[user_id]) >= config.max_favorites_per_user:
+        if len(user_favorites[combined_key]) >= config.max_favorites_per_user:
             msg = f"您的收藏已达到上限（{config.max_favorites_per_user}条），请删除一些收藏后再试"
             await UniMessage(msg).send()
             return
         
         # 添加到收藏
-        user_favorites[user_id].append(sentence)
+        user_favorites[combined_key].append(sentence)
         
         # 保存收藏
         await save_favorites()
@@ -892,18 +948,18 @@ async def handle_add_favorite(user_id: str):
         logger.exception(e)  # 输出完整异常堆栈
         await UniMessage("添加收藏时出现错误，请稍后再试").send()
 
-async def handle_list_favorites(user_id: str, event: Event, page: Optional[int] = None):
+async def handle_list_favorites(combined_key: str, event: Event, page: Optional[int] = None):
     """列出收藏处理"""
     try:
         # 获取最新配置
         config = get_current_config()
         
-        if user_id not in user_favorites or not user_favorites[user_id]:
+        if combined_key not in user_favorites or not user_favorites[combined_key]:
             msg = "您还没有收藏任何一言"
             await UniMessage(msg).send()
             return
     
-        favorites = user_favorites[user_id]
+        favorites = user_favorites[combined_key]
         
         # 计算总页数
         per_page = config.favorites_per_page
@@ -925,7 +981,7 @@ async def handle_list_favorites(user_id: str, event: Event, page: Optional[int] 
         page_favorites = favorites[start_idx:end_idx]
         
         # 尝试获取用户昵称
-        user_nickname = user_id # 默认使用 user_id
+        user_nickname = combined_key.split(":", 1)[-1] # 默认使用 user_id 部分
         try:
             if hasattr(event, "sender") and hasattr(event.sender, "nickname"):
                 user_nickname = event.sender.nickname
@@ -969,15 +1025,15 @@ async def handle_list_favorites(user_id: str, event: Event, page: Optional[int] 
         logger.exception(e)  # 输出完整异常堆栈
         await UniMessage("列出收藏时出现错误，请稍后再试").send()
 
-async def handle_detail_favorite(user_id: str, indexes: List[int]):
+async def handle_detail_favorite(combined_key: str, indexes: List[int]):
     """查看收藏详情处理"""
     try:
-        if user_id not in user_favorites or not user_favorites[user_id]:
+        if combined_key not in user_favorites or not user_favorites[combined_key]:
             msg = "您还没有收藏任何一言"
             await UniMessage(msg).send()
             return
     
-        favorites = user_favorites[user_id]
+        favorites = user_favorites[combined_key]
         
         # 获取最新配置并限制单次最大查看数量，防止刷屏
         config = get_current_config()
@@ -1025,15 +1081,15 @@ async def handle_detail_favorite(user_id: str, indexes: List[int]):
         logger.exception(e)  # 输出完整异常堆栈
         await UniMessage("查看收藏详情时出现错误，请稍后再试").send()
 
-async def handle_delete_favorite(user_id: str, indexes: List[int]):
+async def handle_delete_favorite(combined_key: str, indexes: List[int]):
     """删除收藏处理"""
     try:
-        if user_id not in user_favorites or not user_favorites[user_id]:
+        if combined_key not in user_favorites or not user_favorites[combined_key]:
             msg = "您还没有收藏任何一言"
             await UniMessage(msg).send()
             return
     
-        favorites = user_favorites[user_id]
+        favorites = user_favorites[combined_key]
         
         # 检查序号是否有效
         invalid_indexes = []
@@ -1053,14 +1109,14 @@ async def handle_delete_favorite(user_id: str, indexes: List[int]):
         valid_indexes.sort(reverse=True)
         
         # 检查是否有待确认的删除操作
-        if user_id in pending_deletes:
+        if combined_key in pending_deletes:
             # 检查是否超时
-            if time.time() - pending_deletes[user_id]["timestamp"] > DELETE_CONFIRM_TIMEOUT:
+            if time.time() - pending_deletes[combined_key]["timestamp"] > DELETE_CONFIRM_TIMEOUT:
                 # 超时，清除待确认状态
-                del pending_deletes[user_id]
+                del pending_deletes[combined_key]
             else:
                 # 未超时，检查是否包含所有要删除的序号
-                pending_indexes = [pending_deletes[user_id]["index"]] if isinstance(pending_deletes[user_id]["index"], int) else pending_deletes[user_id]["index"]
+                pending_indexes = [pending_deletes[combined_key]["index"]] if isinstance(pending_deletes[combined_key]["index"], int) else pending_deletes[combined_key]["index"]
                 if set(valid_indexes) == set(pending_indexes):
                     # 确认删除全部
                     removed_sentences = []
@@ -1075,7 +1131,7 @@ async def handle_delete_favorite(user_id: str, indexes: List[int]):
                     await save_favorites()
                     
                     # 清除待确认状态
-                    del pending_deletes[user_id]
+                    del pending_deletes[combined_key]
                     
                     # 构建反馈消息
                     if len(removed_sentences) == 1:
@@ -1088,7 +1144,7 @@ async def handle_delete_favorite(user_id: str, indexes: List[int]):
                     return
                 else:
                     # 不同的序号，更新待确认状态
-                    pending_deletes[user_id] = {
+                    pending_deletes[combined_key] = {
                         "index": valid_indexes,
                         "timestamp": time.time()
                     }
@@ -1105,7 +1161,7 @@ async def handle_delete_favorite(user_id: str, indexes: List[int]):
                     return
         
         # 没有待确认的删除操作，创建新的待确认状态
-        pending_deletes[user_id] = {
+        pending_deletes[combined_key] = {
             "index": valid_indexes,
             "timestamp": time.time()
         }
@@ -1122,4 +1178,16 @@ async def handle_delete_favorite(user_id: str, indexes: List[int]):
     except Exception as e:
         logger.error(f"删除收藏时发生未预期的异常: {e}")
         logger.exception(e)  # 输出完整异常堆栈
-        await UniMessage("删除收藏时出现错误，请稍后再试").send() 
+        await UniMessage("删除收藏时出现错误，请稍后再试").send()
+
+# --- 辅助函数 ---
+
+def _get_combined_key(event: Event) -> Optional[str]:
+    """根据事件生成 adapter_name:user_id 的组合键"""
+    try:
+        user_id = str(event.get_user_id())
+        adapter_name = event.get_bot().adapter.get_name()
+        return f"{adapter_name}:{user_id}"
+    except Exception as e:
+        logger.warning(f"无法从事件生成组合键: {e}")
+        return None 

@@ -145,6 +145,9 @@ pip install nonebot-plugin-hitokoto-plus
 
 ## 更新日志
 
+### 0.2.3
+添加对跨平台用户的区分
+
 ### 0.2.2
 修复导入，移除不必要依赖
 

@@ -178,5 +178,8 @@ pyrightconfig.json
 # 忽略所有.env文件
 *.env
 
+# Visual Studio 文件夹
+.vs/
+
 
 
