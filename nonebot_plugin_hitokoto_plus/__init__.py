@@ -7,6 +7,9 @@ import nonebot_plugin_localstore.config as store_config
 # 设置插件标识符，解决Cannot detect caller plugin问题
 store_config.plugin_name = "nonebot_plugin_hitokoto_plus"
 
+
+require("nonebot_plugin_alconna")
+
 from nonebot import get_driver, get_plugin_config, logger
 from nonebot.plugin import PluginMetadata
 from nonebot.adapters import Message, Event
@@ -18,14 +21,6 @@ from nonebot.rule import Rule
 from nonebot_plugin_alconna import on_alconna, Alconna, Args, Option, Subcommand
 from nonebot_plugin_alconna.uniseg import UniMessage
 
-# 适配器导入，提供跨平台支持
-# from nonebot.adapters.onebot.v11 import (
-#     Adapter as OneBotV11Adapter,
-#     Bot as OneBotV11Bot,
-#     GroupMessageEvent, 
-#     GROUP_ADMIN, 
-#     GROUP_OWNER
-# )
 
 import json
 from typing import Optional, Dict, Any, List, Union
