@@ -89,12 +89,15 @@ pip install nonebot-plugin-hitokoto-plus
 
 在 NoneBot2 全局配置文件中（通常是 `.env` 或 `.env.prod` 文件）添加以下配置：
 
+> [!IMPORTANT]
+> 所有配置项都需要加上 `HITP_` 前缀，例如 `HITP_API_URL="https://v1.hitokoto.cn"`。下表中的名称已包含此前缀。
+
 ### 基础配置
 
 | 配置项 | 类型 | 必填 | 默认值 | 说明 |
 |:-----:|:----:|:---:|:-----:|:----:|
-| DEFAULT_TYPE | str | 否 | None | 默认句子类型，不设置则随机 |
-| API_URL | str | 否 | "https://v1.hitokoto.cn" | API地址 |
+| HITP_DEFAULT_TYPE | str | 否 | None | 默认句子类型，不设置则随机 | 
+| HITP_API_URL | str | 否 | "https://v1.hitokoto.cn" | API地址 |
 > [!WARNING]
 > 指定的API地址必须支持与[一言开发者中心](https://developer.hitokoto.cn/sentence/#%E8%AF%B7%E6%B1%82%E5%8F%82%E6%95%B0)提供的请求参数和句子类型调用（返回格式化的JSON文本）
 >
@@ -109,41 +112,68 @@ pip install nonebot-plugin-hitokoto-plus
 
 | 配置项 | 类型 | 必填 | 默认值 | 说明 |
 |:-----:|:----:|:---:|:-----:|:----:|
-| MAX_FAVORITES_PER_USER | int | 否 | 100 | 每个用户最大收藏数量 |
-| FAVORITES_PER_PAGE | int | 否 | 5 | 收藏列表每页显示的句子数量 |
-| FAVORITE_TIMEOUT | int | 否 | 60 | 收藏超时时间（秒），在获取句子后多长时间内可以收藏 |
-| MAX_DETAILS_PER_REQUEST | int | 否 | 3 | 单次查看收藏句子详情的最大数量，超过则被拦截 |
+| HITP_MAX_FAVORITES_PER_USER | int | 否 | 100 | 每个用户最大收藏数量 |
+| HITP_FAVORITES_PER_PAGE | int | 否 | 5 | 收藏列表每页显示的句子数量 |
+| HITP_FAVORITE_TIMEOUT | int | 否 | 60 | 收藏超时时间（秒），在获取句子后多长时间内可以收藏 |
+| HITP_MAX_DETAILS_PER_REQUEST | int | 否 | 3 | 单次查看收藏句子详情的最大数量，超过则被拦截 |
 
 
 ### 权限、频率配置
 
 | 配置项 | 类型 | 必填 | 默认值 | 说明 |
 |:-----:|:----:|:---:|:-----:|:----:|
-| ENABLE_PRIVATE_CHAT | bool | 否 | True | 是否允许私聊使用 |
-| ENABLE_GROUP_CHAT | bool | 否 | True | 是否允许群聊使用 |
-| RATE_LIMIT_PRIVATE | int | 否 | 5 | 私聊频率限制（秒） |
-| RATE_LIMIT_GROUP | int | 否 | 10 | 群聊频率限制（秒） |
+| HITP_ENABLE_PRIVATE_CHAT | bool | 否 | True | 是否允许私聊使用 |
+| HITP_ENABLE_GROUP_CHAT | bool | 否 | True | 是否允许群聊使用 |
+| HITP_RATE_LIMIT_PRIVATE | int | 否 | 5 | 私聊频率限制（秒） |
+| HITP_RATE_LIMIT_GROUP | int | 否 | 10 | 群聊频率限制（秒） |
 
 
 ### 黑白名单设置
 
 | 配置项 | 类型 | 必填 | 默认值 | 说明 |
 |:-----:|:----:|:---:|:-----:|:----:|
-| ENABLE_WHITELIST | bool | 否 | False | 是否启用白名单 |
-| ENABLE_BLACKLIST | bool | 否 | False | 是否启用黑名单 |
-| WHITELIST_USERS | list | 否 | [] | 白名单用户列表 |
-| BLACKLIST_USERS | list | 否 | [] | 黑名单用户列表 |
-| WHITELIST_GROUPS | list | 否 | [] | 白名单群组列表 |
-| BLACKLIST_GROUPS | list | 否 | [] | 黑名单群组列表 |
+| HITP_ENABLE_WHITELIST | bool | 否 | False | 是否启用白名单 |
+| HITP_ENABLE_BLACKLIST | bool | 否 | False | 是否启用黑名单 |
+| HITP_WHITELIST_USERS | list | 否 | [] | 白名单用户列表，格式为 `适配器名称:用户ID`，例如 `["onebot11:12345", "discord:98765"]` |
+| HITP_BLACKLIST_USERS | list | 否 | [] | 黑名单用户列表，格式为 `适配器名称:用户ID`，例如 `["onebot11:54321", "kook:112233"]` |
+| HITP_WHITELIST_GROUPS | list | 否 | [] | 白名单群组列表，格式为 `适配器名称:群组ID`，例如 `["onebot11:10001", "discord:20002"]` |
+| HITP_BLACKLIST_GROUPS | list | 否 | [] | 黑名单群组列表，格式为 `适配器名称:群组ID`，例如 `["onebot11:10003", "kook:20004"]` |
+
+> [!NOTE]
+> `适配器名称` 参考:
+> 
+> | 适配器名称 | 平台/协议 |
+> |:----------|:---------|
+> | `onebot11` | OneBot V11  |
+> | `onebot12` | OneBot V12  |
+> | `console` | Console |
+> | `kook`    | KOOK (开黑啦) |
+> | `telegram`| Telegram |
+> | `feishu`  | 飞书 |
+> | `discord` | Discord |
+> | `qq`      | QQ (官方) |
+> | `satori`  | Satori |
+> | `dodo`    | DoDo |
+> | `kritor`  | Kritor |
+> | `mirai`   | Mirai |
+> | `mail`    | Mail |
+> | `wxmp`    | 微信公众号 |
+>
+
 
 ## 注意事项
 - 该插件代码基本由AI完成，如有更好的改进建议欢迎提交pr
-- 目前仅使用了`OnebotV11适配器+Napcat`，在Windows/Linux系统下测试通过，如有兼容性问题/其他适配器的运行情况欢迎提交issue
+- 目前仅使用了`Onebot适配器+Napcat`，在Windows/Linux系统下测试通过，如有兼容性问题/其他适配器的运行情况欢迎提交issue
 - 尝试进行了跨平台兼容，但运行情况未知
 
 
 
 ## 更新日志
+
+### 0.2.4
+修复一些已知问题，重写部分组件
+> [!IMPORTANT]
+> 自0.2.4版本起，依赖与配置项均发生改变，请注意查看
 
 ### 0.2.3
 添加对跨平台用户的区分
@@ -164,10 +194,11 @@ pip install nonebot-plugin-hitokoto-plus
 
 ## 鸣谢
 
-- [Hitokoto.cn](https://hitokoto.cn/) - 提供一言 API 服务
-- [NoneBot2](https://github.com/nonebot/nonebot2) - 跨平台 Python 异步机器人框架
+- [Hitokoto.cn](https://hitokoto.cn/) - 提供一言 API 服务，数据源 
+- [NoneBot2](https://github.com/nonebot/nonebot2) - 跨平台 Python 异步机器人框架 
 - [nonebot-plugin-alconna](https://github.com/nonebot/plugin-alconna) - 强大的命令解析器，实现跨平台支持 
-- [noneBot-plugin-localStore](https://github.com/nonebot/plugin-localstore) - 实现本地数据存储 
+- [noneBot-plugin-localStore](https://github.com/nonebot/plugin-localstore) - NoneBot 本地数据存储插件，实现本地数据存储 
+- [nonebot-plugin-uninfo](https://github.com/RF-Tar-Railt/nonebot-plugin-uninfo) - Nonebot2 多平台的会话信息(用户、群组、频道)获取插件,实现对用户信息的获取 
 
 以及所有相关项目❤ 
 

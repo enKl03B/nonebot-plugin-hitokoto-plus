@@ -4,10 +4,14 @@ require("nonebot_plugin_localstore")
 import nonebot_plugin_localstore as store
 import nonebot_plugin_localstore.config as store_config
 
-# 设置插件标识符，解决Cannot detect caller plugin问题
+# 显式 require 依赖 uninfo
+require("nonebot_plugin_uninfo")
+from nonebot_plugin_uninfo import Uninfo 
+
+# 设置插件标识符
 store_config.plugin_name = "nonebot_plugin_hitokoto_plus"
 
-
+# 显式 require 依赖 alconna
 require("nonebot_plugin_alconna")
 
 from nonebot import get_driver, get_plugin_config, logger
@@ -16,9 +20,10 @@ from nonebot.adapters import Message, Event
 from nonebot.matcher import Matcher
 from nonebot.compat import type_validate_python
 from nonebot.rule import Rule
+from nonebot.params import Depends 
 
 # Alconna相关导入
-from nonebot_plugin_alconna import on_alconna, Alconna, Args, Option, Subcommand
+from nonebot_plugin_alconna import on_alconna, Alconna, Args, Option, Subcommand, Match
 from nonebot_plugin_alconna.uniseg import UniMessage
 
 
@@ -28,7 +33,7 @@ import asyncio
 import os
 import re
 import time
-import random # 新增导入
+import random 
 
 from .config import HitokotoConfig
 from .api import HitokotoAPI, HitokotoSentence
@@ -68,7 +73,7 @@ __plugin_meta__ = PluginMetadata(
 hitokoto_config = get_plugin_config(HitokotoConfig)
 
 # 创建API客户端
-api = HitokotoAPI(hitokoto_config.api_url)
+api = HitokotoAPI(hitokoto_config.hitp_api_url)
 
 # 创建频率限制器
 rate_limiter = RateLimiter()
@@ -94,10 +99,15 @@ AUTO_SAVE_INTERVAL = 300  # 5分钟
 # 自动保存任务
 auto_save_task = None
 
-# 使用Alconna创建命令
+# 定义一个匹配有效单字符类型或为空的正则表达式模式
+valid_type_pattern = r"^[a-l]?$"
+# 编译正则表达式模式
+compiled_type_pattern = re.compile(valid_type_pattern)
+
 hitokoto_alc = Alconna(
     "一言",
-    Args["type?", str],
+    # 直接在Args中使用编译后的正则表达式模式
+    Args["type?", compiled_type_pattern],
     Option("--help", help_text="显示帮助信息"),
     separators=[" "]  # 明确指定分隔符，避免匹配到"一言收藏"等命令
 )
@@ -149,58 +159,82 @@ async def not_favorite_command(event: Event) -> bool:
     return True
 
 # 新增：权限检查规则
-async def check_permission(event: Event) -> bool:
-    """检查用户/群组是否满足黑白名单和启用配置"""
+async def check_permission(session: Uninfo) -> bool: # 修改参数为 session
+    """检查用户/群组是否满足黑白名单和启用配置 (使用 Uninfo)"""
     config = get_current_config()
-    user_id = str(getattr(event, "user_id", None))
     
-    # 无法获取 user_id 则阻止
-    if not user_id:
+    # 尝试获取 adapter_name 和 user_id
+    user_id = session.user.id
+    adapter_name = session.adapter.name if hasattr(session.adapter, 'name') else str(session.adapter)
+    
+    # 无法获取 user_id 或 adapter_name 则阻止
+    if not user_id or not adapter_name:
+        logger.debug("权限检查：无法从 session 获取 user_id 或 adapter_name")
         return False
+        
+    # 生成组合键
+    combined_user_key = f"{adapter_name}:{user_id}"
         
     # 尝试判断是群聊还是私聊
-    is_group = hasattr(event, "group_id")
+    is_group = session.scene.is_group # 使用 session 判断
     group_id = None
+    combined_group_key = None
     if is_group:
-        group_id = str(getattr(event, "group_id"))
+        group_id = session.scene.id # 从 session 获取
+        if group_id: # 确保 group_id 有效
+            combined_group_key = f"{adapter_name}:{group_id}"
+    elif session.scene.parent and session.scene.parent.is_group: # 兼容频道内的群聊场景
+         is_group = True
+         group_id = session.scene.parent.id
+         if group_id: # 确保 group_id 有效
+             combined_group_key = f"{adapter_name}:{group_id}"
         
     # 检查是否启用对应聊天类型
-    if not is_group and not config.enable_private_chat:
-        logger.debug(f"权限检查：私聊已禁用，用户 {user_id}")
+    if not is_group and not config.hitp_enable_private_chat:
+        logger.debug(f"权限检查：私聊已禁用，用户 {combined_user_key}")
         return False
-    if is_group and not config.enable_group_chat:
-        logger.debug(f"权限检查：群聊已禁用，群 {group_id} 用户 {user_id}")
+    if is_group and not config.hitp_enable_group_chat:
+        logger.debug(f"权限检查：群聊已禁用，群 {combined_group_key or group_id} 用户 {combined_user_key}")
         return False
         
     # 白名单模式
-    if config.enable_whitelist:
+    if config.hitp_enable_whitelist:
         is_whitelisted = False
-        if user_id in config.whitelist_users:
+        # 使用组合键进行检查
+        if combined_user_key in config.hitp_whitelist_users:
             is_whitelisted = True
-            logger.debug(f"权限检查：用户 {user_id} 在白名单中")
-        if is_group and group_id and group_id in config.whitelist_groups:
+            logger.debug(f"权限检查：用户 {combined_user_key} 在白名单中")
+        # 检查群组白名单（如果存在组合键）
+        if is_group and combined_group_key and combined_group_key in config.hitp_whitelist_groups:
             is_whitelisted = True
-            logger.debug(f"权限检查：群 {group_id} 在白名单中")
+            logger.debug(f"权限检查：群 {combined_group_key} 在白名单中")
             
         if not is_whitelisted:
-            logger.debug(f"权限检查：白名单模式下，用户 {user_id} 或群 {group_id} 不在白名单中")
+            logger.debug(f"权限检查：白名单模式下，用户 {combined_user_key} 或群 {combined_group_key or group_id} 不在白名单中")
             return False
         # 白名单检查通过，直接允许
         return True
         
     # 黑名单模式 (仅在白名单未启用时生效)
-    elif config.enable_blacklist:
-        if user_id in config.blacklist_users:
-            logger.debug(f"权限检查：用户 {user_id} 在黑名单中")
+    elif config.hitp_enable_blacklist: # 使用带前缀的配置
+        # 使用组合键进行检查
+        if combined_user_key in config.hitp_blacklist_users: # 使用带前缀的配置
+            logger.debug(f"权限检查：用户 {combined_user_key} 在黑名单中")
             return False
-        if is_group and group_id and group_id in config.blacklist_groups:
-            logger.debug(f"权限检查：群 {group_id} 在黑名单中")
-            return False
-        # 黑名单检查通过，允许
+        # 检查群组黑名单（如果存在组合键）
+        if is_group and combined_group_key:
+            if combined_group_key in config.hitp_blacklist_groups: # 使用带前缀的配置
+                logger.debug(f"权限检查：群 {combined_group_key} 在黑名单中")
+                return False
+        # 如果没有任何匹配，则允许
         return True
         
     # 未启用黑白名单，默认允许
     return True
+
+# 创建包装函数以在 Rule 中使用基于 session 的权限检查
+async def permission_checker(session: Uninfo) -> bool: # 直接使用类型注解
+    return await check_permission(session)
 
 # 创建自定义规则，只匹配收藏命令
 async def is_favorite_command(event: Event) -> bool:
@@ -250,90 +284,10 @@ except:
 
 # 使用正则规则和自定义规则注册命令
 favorite_cmd = on_alconna(favorite_alc, priority=1, use_cmd_start=True, block=True, 
-                         rule=Rule(is_favorite_command) & Rule(check_permission))
+                         rule=Rule(is_favorite_command) & Rule(permission_checker))
                          
-hitokoto_cmd = on_alconna(hitokoto_alc, priority=10, aliases=list(hitokoto_config.command_aliases), 
-                         use_cmd_start=True, rule=Rule(not_favorite_command) & Rule(check_permission))
-
-# 额外添加一个处理器，专门用于拦截"一言收藏"开头的命令但没有匹配到favorite_cmd的情况
-from nonebot.rule import startswith
-from nonebot import on_message
-
-# 使用动态获取的命令前缀
-favorite_fallback = on_message(
-    priority=2,  # 优先级高于hitokoto_cmd但低于favorite_cmd
-    block=True,
-    rule=startswith(f"{command_prefix}一言收藏") & Rule(check_permission)  # 添加权限检查
-)
-
-@favorite_fallback.handle()
-async def handle_favorite_fallback(event: Event):
-    """处理未被主收藏命令匹配到的一言收藏命令"""
-    
-    # 检查权限
-    if not await check_permission(event):
-        return
-
-    # 提取组合键
-    combined_key = _get_combined_key(event)
-    if not combined_key:
-        logger.warning("无法获取组合键，跳过处理")
-        return
-
-    # 尝试获取原始消息文本
-    message_text = ""
-    try:
-        if hasattr(event, "get_message") and callable(event.get_message):
-            message_text = event.get_message().extract_plain_text().strip()
-        elif hasattr(event, "get_plaintext") and callable(event.get_plaintext):
-            message_text = event.get_plaintext().strip()
-        elif hasattr(event, "message"):
-            message_text = str(event.message).strip()
-    except Exception as e:
-        logger.warning(f"获取消息文本时出错: {e}")
-    
-    logger.debug(f"收藏命令备用处理器处理原始消息: {message_text}")
-    
-    # 检查子命令
-    if "列表" in message_text:
-        # 提取页码
-        page = None
-        import re
-        match = re.search(r'列表\s*(\d+)', message_text)
-        if match:
-            page = int(match.group(1))
-        # 修改调用处，传递 event 对象
-        await handle_list_favorites(combined_key, event, page)
-        return
-    
-    if "详情" in message_text:
-        # 提取序号（支持多个）
-        indexes = []
-        import re
-        matches = re.findall(r'(\d+)', message_text)
-        if matches:
-            indexes = [int(match) for match in matches]
-            await handle_detail_favorite(combined_key, indexes)
-        else:
-            logger.info("收藏详情命令缺少序号参数")
-            await UniMessage("请指定要查看详情的收藏序号，例如：/一言收藏详情 1").send()
-        return
-    
-    if "删除" in message_text:
-        # 提取序号（支持多个）
-        indexes = []
-        import re
-        matches = re.findall(r'(\d+)', message_text)
-        if matches:
-            indexes = [int(match) for match in matches]
-            await handle_delete_favorite(combined_key, indexes)
-        else:
-            logger.info("收藏删除命令缺少序号参数")
-            await UniMessage("请指定要删除的收藏序号，例如：/一言收藏删除 1").send()
-        return
-    
-    # 默认为添加收藏
-    await handle_add_favorite(combined_key)
+hitokoto_cmd = on_alconna(hitokoto_alc, priority=10, aliases=list(hitokoto_config.hitp_command_aliases), 
+                         use_cmd_start=True, rule=Rule(not_favorite_command) & Rule(permission_checker))
 
 # 初始化
 driver = get_driver()
@@ -390,7 +344,7 @@ async def migrate_favorites_format():
         except Exception as e:
             logger.error(f"保存迁移后的收藏数据失败: {e}")
     else:
-        logger.info("收藏数据格式无需迁移")
+        logger.debug("收藏数据格式无需迁移")
 
 def get_current_config():
     """获取最新的配置"""
@@ -550,30 +504,35 @@ async def save_favorites():
             logger.error(f"从备份恢复收藏数据失败: {str(restore_error)}")
 
 @hitokoto_cmd.handle()
-async def handle_hitokoto(matcher: Matcher):
+async def handle_hitokoto(matcher: Matcher, session: Uninfo): # 修改依赖注入
     """处理一言命令"""
 
     # 获取最新配置
     config = get_current_config()
 
-    # 获取事件信息和用户ID
+    # 获取事件信息和用户ID - 改为从 session 获取
     try:
-        from nonebot.matcher import current_event
-        event = current_event.get()
-        user_id = str(getattr(event, "user_id", "unknown"))
+        # user_id = str(getattr(event, "user_id", "unknown")) # 旧方式
+        user_id = session.user.id
+        adapter_name = session.adapter.name if hasattr(session.adapter, 'name') else str(session.adapter)
         
-        # 检查频率限制
-        if hasattr(event, "group_id"):  # 群聊消息
-            group_id = str(getattr(event, "group_id"))
+        # 检查频率限制 - 需要 group_id，尝试从 session 获取
+        group_id = None
+        if session.scene.is_group:
+            group_id = session.scene.id
+        elif session.scene.parent and session.scene.parent.is_group:
+            group_id = session.scene.parent.id
+            
+        if group_id: # 群聊消息
             allowed, remaining = rate_limiter.check_group(
-                group_id, user_id, config.rate_limit_group
+                group_id, user_id, config.hitp_rate_limit_group
             )
             if not allowed:
                 await UniMessage(f"别急，请等待 {remaining:.1f} 秒后再试").send()
                 return
         else:  # 私聊消息
             allowed, remaining = rate_limiter.check_user(
-                user_id, config.rate_limit_private
+                user_id, config.hitp_rate_limit_private # 使用带前缀的配置
             )
             if not allowed:
                 await UniMessage(f"别急，请等待 {remaining:.1f} 秒后再试").send()
@@ -585,13 +544,6 @@ async def handle_hitokoto(matcher: Matcher):
     sentence_type = None
     invalid_type = False
     input_type = None
-    
-    # 获取原始消息文本，用于日志和调试
-    message_text = ""
-    try:
-        message_text = event.get_message().extract_plain_text().strip()
-    except Exception as e:
-        logger.warning(f"获取消息文本失败: {e}")
     
     # 详细记录matcher.state内容用于调试
     for key in matcher.state:
@@ -625,29 +577,8 @@ async def handle_hitokoto(matcher: Matcher):
                     sentence_type = input_type
                 else:
                     invalid_type = True
-                    logger.info(f"类型无效: {input_type}")
         except Exception as e:
             logger.warning(f"从Alconna结果提取类型时出错: {e}")
-    
-    # 如果没有从Alconna结果中提取到，尝试从消息文本中正则提取
-    if not sentence_type and not invalid_type and message_text:
-        try:
-            import re
-            # 尝试通过正则提取参数 - 只匹配格式为 "/一言 X" 的命令，其中X是单个字母
-            match = re.search(r'/一言\s+([a-l])\s*$', message_text)
-            if match:
-                direct_type = match.group(1)
-                sentence_type = direct_type
-            else:
-                # 检查是否有无效类型
-                pattern = r'/一言\s+([^\s]+)'
-                match = re.search(pattern, message_text)
-                if match and match.group(1) not in "abcdefghijkl":
-                    input_type = match.group(1)
-                    invalid_type = True
-                    logger.info(f"通过正则表达式提取到无效类型: {input_type}")
-        except Exception as e:
-            logger.warning(f"尝试从消息中提取类型时出错: {e}")
     
     # 如果检测到无效类型，返回错误提示
     if invalid_type:
@@ -672,21 +603,15 @@ async def handle_hitokoto(matcher: Matcher):
         message += "\n".join(valid_types)
         message += f"\n\n正确用法示例: {command_prefix}一言 a"
         
-        logger.info(f"发送无效类型提示: {message}")
+        logger.info(f"用户请求的类型无效，发送无效类型提示")
         await UniMessage(message).send()
         return
     
     try:
-        # 获取当前上下文
-        from nonebot.matcher import current_event
-        
-        # 获取事件和组合键
-        event = current_event.get()
-        combined_key = _get_combined_key(event)
+        # 获取组合键
+        combined_key = _get_combined_key(session) # 使用 session
         if not combined_key:
             logger.warning("无法获取组合键，跳过处理")
-            # 即使无法获取键，也可能需要发送消息，根据策略决定是否return
-            # 此处选择发送错误信息
             try:
                 await UniMessage("获取用户信息失败，无法完成操作").send()
             except:
@@ -697,7 +622,7 @@ async def handle_hitokoto(matcher: Matcher):
         logger.debug("开始获取一言并发送")
         
         # 获取一个随机一言，使用用户指定的类型或默认类型
-        sentence = await api.get_hitokoto(sentence_type or config.default_type)
+        sentence = await api.get_hitokoto(sentence_type or config.hitp_default_type) # 使用带前缀的配置
         
         # 格式化一言消息
         message = api.format_sentence(sentence, with_source=True, with_author=True)
@@ -755,7 +680,7 @@ async def handle_hitokoto(matcher: Matcher):
             except:
                 pass
             
-            message += f"\n\n在 {config.favorite_timeout} 秒内发送{command_prefix}一言收藏可收藏该句"
+            message += f"\n\n在 {config.hitp_favorite_timeout} 秒内发送{command_prefix}一言收藏可收藏该句" # 使用带前缀的配置
         except Exception as e:
             logger.warning(f"保存用户最后句子失败: {e}")
         
@@ -773,111 +698,63 @@ async def handle_hitokoto(matcher: Matcher):
             pass
 
 @favorite_cmd.handle()
-async def handle_favorite(matcher: Matcher, event: Event):
-    """处理收藏命令"""
+async def handle_favorite(matcher: Matcher, session: Uninfo): # 使用 Uninfo
+    """处理收藏命令 (重构后)"""
     logger.debug("收藏命令被调用")
     
     # 提取组合键
-    combined_key = _get_combined_key(event)
+    combined_key = _get_combined_key(session)
     if not combined_key:
         logger.warning("无法获取组合键，跳过处理")
         await UniMessage("获取用户信息失败，无法完成操作").send()
         return
-    
-    # 尝试获取原始消息文本
-    message_text = ""
-    try:
-        if hasattr(event, "get_message") and callable(event.get_message):
-            message_text = event.get_message().extract_plain_text().strip()
-        elif hasattr(event, "get_plaintext") and callable(event.get_plaintext):
-            message_text = event.get_plaintext().strip()
-        elif hasattr(event, "message"):
-            message_text = str(event.message).strip()
-    except Exception as e:
-        logger.warning(f"获取消息文本时出错: {e}")
-    
-    logger.debug(f"收藏命令原始消息文本: {message_text}")
-    
-    # 尝试从matcher.state获取更详细的信息
-    for key in matcher.state:
-        if 'alconna' in key.lower():
-            pass
-    
-    # 检查是否包含帮助标志
-    if "--help" in message_text or "-h" in message_text:
-        logger.debug("检测到收藏帮助命令")
-        help_text = """收藏功能帮助:
-- /一言收藏 - 收藏上一次获取的句子
-- /一言收藏列表 [页码] - 查看收藏的句子列表，可选参数：页码
-- /一言收藏删除 <序号1> [序号2...] - 删除指定序号的收藏，可指定多个序号
-- /一言收藏详情 <序号1> [序号2...] - 查看指定序号收藏的详细信息，可指定多个序号"""
-        await UniMessage(help_text).send()
-        return
-    
-    # 检查子命令 - 优先使用Alconna解析结果
+
+    # 检查Alconna解析结果
     alconna_result = None
     for key in matcher.state:
-        if 'alconna' in key.lower() and matcher.state[key]:
-            alconna_result = matcher.state[key]
-            break
-    
-    if alconna_result:
-        logger.debug(f"使用Alconna解析结果: {alconna_result}")
+        if 'alconna' in key.lower() and matcher.state[key]: # 查找包含 alconna 的键
+            if hasattr(matcher.state[key], 'matched') and matcher.state[key].matched: # 确保是匹配成功的结果
+                 alconna_result = matcher.state[key]
+                 break
+             # 兼容旧版或不同结构的 state
+            elif isinstance(matcher.state[key], dict) and matcher.state[key].get('matched'):
+                 alconna_result = matcher.state[key]
+                 break
+
+    # Alconna 会自动处理 --help，这里无需手动检查文本
+
+    if alconna_result and hasattr(alconna_result, "subcommands") and alconna_result.subcommands:
+        logger.debug(f"使用Alconna解析结果处理子命令: {alconna_result.subcommands}")
         # 检查是否有列表子命令
-        if hasattr(alconna_result, "subcommands") and "列表" in alconna_result.subcommands:
+        if "列表" in alconna_result.subcommands:
             page = alconna_result.subcommands["列表"].get("page")
-            await handle_list_favorites(combined_key, event, page)
+            await handle_list_favorites(combined_key, session, page)
             return
         # 检查是否有删除子命令
-        elif hasattr(alconna_result, "subcommands") and "删除" in alconna_result.subcommands:
+        elif "删除" in alconna_result.subcommands:
             indexes = alconna_result.subcommands["删除"].get("indexes")
+            if not indexes:
+                 await UniMessage("请指定要删除的收藏序号，例如：/一言收藏删除 1").send()
+                 return
             await handle_delete_favorite(combined_key, indexes)
             return
         # 检查是否有详情子命令
-        elif hasattr(alconna_result, "subcommands") and "详情" in alconna_result.subcommands:
+        elif "详情" in alconna_result.subcommands:
             indexes = alconna_result.subcommands["详情"].get("indexes")
+            if not indexes:
+                 await UniMessage("请指定要查看详情的收藏序号，例如：/一言收藏详情 1").send()
+                 return
             await handle_detail_favorite(combined_key, indexes)
             return
-    
-    # 如果Alconna解析失败，使用文本解析作为后备
-    if "列表" in message_text:
-        # 提取页码
-        page = None
-        import re
-        match = re.search(r'列表\s*(\d+)', message_text)
-        if match:
-            page = int(match.group(1))
-        await handle_list_favorites(combined_key, event, page)
-        return
-    
-    if "详情" in message_text:
-        # 提取序号（支持多个）
-        indexes = []
-        import re
-        matches = re.findall(r'(\d+)', message_text)
-        if matches:
-            indexes = [int(match) for match in matches]
-            await handle_detail_favorite(combined_key, indexes)
         else:
-            logger.info("收藏详情命令缺少序号参数")
-            await UniMessage("请指定要查看详情的收藏序号，例如：/一言收藏详情 1").send()
-        return
-    
-    if "删除" in message_text:
-        # 提取序号（支持多个）
-        indexes = []
-        import re
-        matches = re.findall(r'(\d+)', message_text)
-        if matches:
-            indexes = [int(match) for match in matches]
-            await handle_delete_favorite(combined_key, indexes)
-        else:
-            logger.info("收藏删除命令缺少序号参数")
-            await UniMessage("请指定要删除的收藏序号，例如：/一言收藏删除 1").send()
-        return
-    
-    # 默认为添加收藏
-    await handle_add_favorite(combined_key)
+            # 存在子命令但无法识别 (理论上不应发生，除非 Alconna 定义有问题)
+            logger.warning(f"无法识别的收藏子命令: {alconna_result.subcommands}")
+            await UniMessage("无法识别的收藏子命令").send()
+            return
+    else:
+        # 没有匹配到任何子命令，执行默认操作：添加收藏
+        logger.debug("未匹配到收藏子命令，执行添加收藏操作")
+        await handle_add_favorite(combined_key)
 
 async def handle_add_favorite(combined_key: str):
     """添加收藏处理"""
@@ -902,7 +779,7 @@ async def handle_add_favorite(combined_key: str):
         
         # 计算时间差
         time_diff = current_time - last_data["timestamp"]
-        if time_diff > config.favorite_timeout:
+        if time_diff > config.hitp_favorite_timeout:
             # 获取命令前缀
             command_prefix = "/"  # 默认前缀
             try:
@@ -911,7 +788,7 @@ async def handle_add_favorite(combined_key: str):
             except:
                 pass
             
-            msg = f"收藏超时，请在获取句子后 {config.favorite_timeout} 秒内使用 \"{command_prefix}一言收藏\" 进行收藏"
+            msg = f"收藏超时，请在获取句子后 {config.hitp_favorite_timeout} 秒内使用 \"{command_prefix}一言收藏\" 进行收藏" # 使用带前缀的配置
             await UniMessage(msg).send()
             return
         
@@ -930,8 +807,8 @@ async def handle_add_favorite(combined_key: str):
                 return
         
         # 检查是否超过最大收藏数量
-        if len(user_favorites[combined_key]) >= config.max_favorites_per_user:
-            msg = f"您的收藏已达到上限（{config.max_favorites_per_user}条），请删除一些收藏后再试"
+        if len(user_favorites[combined_key]) >= config.hitp_max_favorites_per_user:
+            msg = f"您的收藏已达到上限（{config.hitp_max_favorites_per_user}条），请删除一些收藏后再试" # 使用带前缀的配置
             await UniMessage(msg).send()
             return
         
@@ -948,7 +825,7 @@ async def handle_add_favorite(combined_key: str):
         logger.exception(e)  # 输出完整异常堆栈
         await UniMessage("添加收藏时出现错误，请稍后再试").send()
 
-async def handle_list_favorites(combined_key: str, event: Event, page: Optional[int] = None):
+async def handle_list_favorites(combined_key: str, session: Uninfo, page: Optional[int] = None): # 修改依赖注入
     """列出收藏处理"""
     try:
         # 获取最新配置
@@ -962,7 +839,7 @@ async def handle_list_favorites(combined_key: str, event: Event, page: Optional[
         favorites = user_favorites[combined_key]
         
         # 计算总页数
-        per_page = config.favorites_per_page
+        per_page = config.hitp_favorites_per_page # 使用带前缀的配置
         total_pages = (len(favorites) + per_page - 1) // per_page
         
         # 处理页码参数
@@ -980,16 +857,8 @@ async def handle_list_favorites(combined_key: str, event: Event, page: Optional[
         # 获取当前页的收藏
         page_favorites = favorites[start_idx:end_idx]
         
-        # 尝试获取用户昵称
-        user_nickname = combined_key.split(":", 1)[-1] # 默认使用 user_id 部分
-        try:
-            if hasattr(event, "sender") and hasattr(event.sender, "nickname"):
-                user_nickname = event.sender.nickname
-            elif hasattr(event, "get_user_id") and callable(event.get_user_id):
-                # 尝试通过 get_user_id 获取一些信息，虽然不一定能得到昵称
-                pass 
-        except Exception as e:
-            logger.warning(f"获取用户昵称失败: {e}")
+        # 尝试获取用户昵称 - 使用 Uninfo session
+        user_nickname = session.user.name or (session.member.nick if session.member else None) or combined_key.split(":", 1)[-1]
             
         # 构建消息 - 修改标题部分
         message = f"{user_nickname} 的\n一言+·收藏列表\n-------------------\n"
@@ -1037,7 +906,7 @@ async def handle_detail_favorite(combined_key: str, indexes: List[int]):
         
         # 获取最新配置并限制单次最大查看数量，防止刷屏
         config = get_current_config()
-        max_details = config.max_details_per_request
+        max_details = config.hitp_max_details_per_request # 使用带前缀的配置
         if len(indexes) > max_details:
             await UniMessage(f"单次最多只能查看 {max_details} 条收藏详情，您请求了 {len(indexes)} 条").send()
             # 完全拦截，不处理任何请求
@@ -1182,12 +1051,26 @@ async def handle_delete_favorite(combined_key: str, indexes: List[int]):
 
 # --- 辅助函数 ---
 
-def _get_combined_key(event: Event) -> Optional[str]:
-    """根据事件生成 adapter_name:user_id 的组合键"""
+def _get_combined_key(session: Uninfo) -> Optional[str]:
+    """根据 Uninfo session 生成 adapter_name:user_id 的组合键"""
     try:
-        user_id = str(event.get_user_id())
-        adapter_name = event.get_bot().adapter.get_name()
+        # 获取用户ID
+        user_id = session.user.id
+        # 获取适配器名称，处理可能的枚举类型
+        if hasattr(session.adapter, 'name'):
+            adapter_name = session.adapter.name
+        else:
+            adapter_name = str(session.adapter)
+        
+        # 确保 user_id 和 adapter_name 不为空
+        if not user_id or not adapter_name:
+             logger.warning(f"无法从 session 获取有效的 user_id 或 adapter_name: user_id={user_id}, adapter_name={adapter_name}")
+             return None
+             
         return f"{adapter_name}:{user_id}"
+    except AttributeError as e:
+        logger.warning(f"从 session 生成组合键时缺少属性: {e}")
+        return None
     except Exception as e:
-        logger.warning(f"无法从事件生成组合键: {e}")
+        logger.warning(f"从 session 生成组合键时发生未知错误: {e}")
         return None 
