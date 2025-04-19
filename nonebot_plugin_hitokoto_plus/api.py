@@ -1,187 +1,166 @@
-from typing import Optional, Dict, Any
 import httpx
-from pydantic import BaseModel, Field
+import json
 import asyncio
-from nonebot import logger
-from nonebot.compat import model_dump
+from typing import Dict, Optional, Any, Union, List, TypedDict
 
-class HitokotoSentence(BaseModel):
-    """一言句子模型
-    
-    用于存储和处理从一言API获取的句子数据的Pydantic模型
-    包含句子的所有属性，例如内容、来源、作者等
-    """
-    id: int                # 句子ID
-    uuid: str              # 句子UUID
-    hitokoto: str          # 句子内容
-    type: str              # 句子类型
-    from_: str = Field(..., alias="from")  # 句子来源，使用别名适配API返回
-    from_who: Optional[str] = None  # 句子作者，可能为空
-    creator: str           # 创建者
-    creator_uid: int       # 创建者UID
-    reviewer: int          # 审核者ID
-    commit_from: str       # 提交来源
-    created_at: str        # 创建时间
-    length: int            # 句子长度
+from nonebot import get_plugin_config
+from nonebot.log import logger
 
-    def model_dump(self) -> Dict[str, Any]:
-        """将模型转换为字典"""
-        return model_dump(self)
+from .config import Config
 
-    def dict(self) -> Dict[str, Any]:
-        """兼容Pydantic v1的字典转换方法"""
-        return self.model_dump()
+# 获取插件配置
+plugin_config = get_plugin_config(Config)
+
+# 固定的请求超时时间（10秒）
+TIMEOUT = 10
+
+
+class HitokotoResponse(TypedDict, total=False):
+    """一言API响应数据类型定义"""
+    hitokoto: str  # 一言内容
+    from_: str  # 来源，使用from_避免与Python关键字冲突
+    from_who: Optional[str]  # 作者
+    from_who_plain: str  # 格式化后的作者
+    type: str  # 类型代码
+    type_name: str  # 类型名称
+    uuid: str  # 唯一标识
+
 
 class APIError(Exception):
-    """API调用相关错误的基类"""
+    """API调用异常"""
     pass
 
-class RequestError(APIError):
-    """请求发送失败的错误"""
-    pass
 
-class ResponseError(APIError):
-    """响应解析失败的错误"""
-    pass
-
-class HitokotoAPI:
-    """一言API客户端
-    
-    负责与一言API通信，获取句子并进行格式化处理
+async def get_hitokoto(
+    hitokoto_type: Optional[str] = None
+) -> Dict[str, Any]:
     """
+    获取一条一言
     
-    def __init__(self, api_url: str = "https://v1.hitokoto.cn"):
-        """初始化API客户端
+    参数:
+        hitokoto_type: 一言类型，可以是中文名称或类型代码
         
-        Args:
-            api_url: 一言API的基础URL，默认为官方API
-        """
-        self.api_url = api_url
-        # 设置较短的超时时间，避免请求卡住
-        self.client = httpx.AsyncClient(timeout=10.0)
-        # 重试相关设置
-        self.max_retries = 3  # 最大重试次数
-        self.retry_delay = 1  # 重试延迟（秒）
+    返回:
+        Dict[str, Any]: 一言数据，包含 hitokoto, from, from_who 等字段
+    
+    异常:
+        APIError: API调用失败
+    """
+    params: Dict[str, str] = {}
+    
+    # 处理类型参数
+    if hitokoto_type:
+        # 清理字符串，去除前后空格
+        hitokoto_type = hitokoto_type.strip()
+        logger.debug(f"处理类型参数: {hitokoto_type}, 类型映射表: {plugin_config.hitokoto_type_map}")
         
-    async def close(self):
-        """关闭HTTP客户端"""
-        await self.client.aclose()
-        
-    async def get_hitokoto(self, 
-                           sentence_type: Optional[str] = None) -> HitokotoSentence:
-        """
-        获取一言句子
-        
-        Args:
-            sentence_type: 句子类型，可选 a~l，对应不同分类
-            
-        Returns:
-            HitokotoSentence: 一言句子对象
-        """
-        # 确保类型参数有效
-        if sentence_type:
-            # 确保类型是单个字母
-            if len(sentence_type) > 1:
-                logger.warning(f"类型参数过长，只取第一个字符: {sentence_type[0]}")
-                sentence_type = sentence_type[0]
-            
-            # 确保类型在有效范围内
-            valid_types = "abcdefghijkl"
-            if sentence_type not in valid_types:
-                logger.warning(f"无效的类型参数: {sentence_type}，使用默认类型")
-                sentence_type = None
-            else:
-                pass # 类型有效
-        
-        # 构建参数
-        params = {}
-        if sentence_type:
-            # API参数c对应句子类型
-            params["c"] = sentence_type
+        # 如果提供的是中文类型名称，转换为对应的类型代码
+        if hitokoto_type in plugin_config.hitokoto_type_map:
+            params["c"] = plugin_config.hitokoto_type_map[hitokoto_type]
+            logger.debug(f"找到类型映射: {hitokoto_type} -> {params['c']}")
         else:
-            pass # 无需特定参数
+            # 尝试进行不区分大小写的匹配
+            matched = False
+            for name, code in plugin_config.hitokoto_type_map.items():
+                if name.lower() == hitokoto_type.lower():
+                    params["c"] = code
+                    logger.debug(f"不区分大小写匹配到类型: {name} -> {code}")
+                    matched = True
+                    break
             
-        # 发送请求，带重试机制
-        for retry in range(self.max_retries):
-            try:
-                # 发起请求
-                response = await self.client.get(self.api_url, params=params)
-                response.raise_for_status()  # 检查HTTP状态码
-                
-                # 解析JSON数据
-                try:
-                    data = response.json()
-                except Exception as e:
-                    raise ResponseError(f"解析API响应JSON失败: {e}")
-                
-                # 检查返回数据是否包含必要字段
-                if "hitokoto" not in data:
-                    raise ResponseError("API返回的数据缺少必要的字段")
-                
-                # 转换为模型对象并返回
-                try:
-                    return HitokotoSentence(**data)
-                except Exception as e:
-                    raise ResponseError(f"转换句子数据为模型失败: {e}")
-                
-            except httpx.RequestError as e:
-                # 网络请求错误
-                logger.warning(f"请求一言API失败 (尝试 {retry+1}/{self.max_retries}): {e}")
-                if retry == self.max_retries - 1:
-                    # 最后一次重试仍失败
-                    raise RequestError(f"请求一言API失败，网络错误: {str(e)}")
-                # 等待后重试
-                await asyncio.sleep(self.retry_delay)
-                
-            except httpx.HTTPStatusError as e:
-                # HTTP状态码错误
-                logger.warning(f"API返回错误状态码 (尝试 {retry+1}/{self.max_retries}): {e}")
-                if retry == self.max_retries - 1:
-                    # 最后一次重试仍失败
-                    raise RequestError(f"API返回错误: HTTP {e.response.status_code}")
-                # 等待后重试
-                await asyncio.sleep(self.retry_delay)
-                
-            except ResponseError as e:
-                # 响应处理错误，直接抛出
-                logger.error(f"处理API响应失败: {e}")
-                raise
-                
-            except Exception as e:
-                # 其他未预期的错误
-                logger.error(f"获取一言时发生未知错误: {e}")
-                if retry == self.max_retries - 1:
-                    # 最后一次重试仍失败
-                    raise ResponseError(f"处理一言API请求时发生未知错误: {str(e)}")
-                # 等待后重试
-                await asyncio.sleep(self.retry_delay)
+            # 如果仍然没有匹配，则假设提供的直接是类型代码
+            if not matched:
+                params["c"] = hitokoto_type
+            logger.debug(f"使用原始类型代码: {hitokoto_type}")
+    elif plugin_config.hitokoto_default_type:
+        params["c"] = plugin_config.hitokoto_default_type
+        
+    # 添加JSON格式参数
+    params["encode"] = "json"
     
-    def format_sentence(self, sentence: HitokotoSentence, 
-                         with_source: bool = True, 
-                         with_author: bool = True) -> str:
-        """
-        格式化一言句子，生成用于展示的文本
-        
-        Args:
-            sentence: 一言句子对象
-            with_source: 是否包含来源
-            with_author: 是否包含作者
+    try:
+        async with httpx.AsyncClient() as client:
+            logger.debug(f"正在请求一言API: {plugin_config.hitokoto_api_url}，参数: {params}")
+            response = await client.get(
+                str(plugin_config.hitokoto_api_url), 
+                params=params,
+                timeout=TIMEOUT  # 使用固定超时时间
+            )
             
-        Returns:
-            str: 格式化后的句子文本
-        """
-        # 句子内容必须包含
-        result = sentence.hitokoto
-        
-        # 添加分割线
-        result += "\n-------------------"
-        
-        # 添加来源信息（如果有且需要显示）
-        if with_source and sentence.from_ and sentence.from_.strip():
-            result += f"\n来源：{sentence.from_}"
+            # 记录完整请求URL
+            logger.debug(f"完整请求URL: {response.request.url}")
             
-        # 添加作者信息（如果有且需要显示）
-        if with_author and sentence.from_who and sentence.from_who.strip():
-            result += f"\n作者：{sentence.from_who}"
+            # 检查HTTP状态码
+            response.raise_for_status()
             
-        return result 
+            # 解析JSON响应
+            data: Dict[str, Any] = response.json()
+            logger.debug(f"API返回数据: {data}")
+            
+            # 对返回数据进行处理，确保某些字段存在
+            if "hitokoto" not in data:
+                raise APIError("API返回数据格式不正确，缺少hitokoto字段")
+                
+            # 对可能不存在的字段进行处理，避免格式化时出错
+            if "from" not in data or not data["from"]:
+                data["from"] = "未知来源"
+                
+            if "from_who" not in data or not data["from_who"]:
+                data["from_who"] = ""
+                data["from_who_plain"] = "无"
+            else:
+                data["from_who"] = f"「{data['from_who']}」"
+                data["from_who_plain"] = data["from_who"].strip("「」")
+                
+            # 添加类型的中文名称
+            if "type" in data:
+                # 反向查找类型映射表，获取中文名称
+                type_code = data["type"]
+                type_name = "未知类型"
+                for name, code in plugin_config.hitokoto_type_map.items():
+                    if code == type_code:
+                        type_name = name
+                        break
+                data["type_name"] = type_name
+                logger.debug(f"API返回类型代码: {type_code}, 映射为类型名称: {type_name}")
+            else:
+                data["type_name"] = "未知类型"
+                
+            return data
+            
+    except httpx.TimeoutException:
+        logger.error("请求一言API超时")
+        raise APIError("请求一言API超时，请稍后再试")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"请求一言API失败: HTTP {e.response.status_code}")
+        raise APIError(f"请求一言API失败: HTTP {e.response.status_code}")
+    except httpx.RequestError as e:
+        logger.error(f"请求一言API网络错误: {str(e)}")
+        raise APIError(f"请求一言API网络错误: {str(e)}")
+    except json.JSONDecodeError:
+        logger.error("一言API返回非JSON数据")
+        raise APIError("一言API返回数据解析失败")
+    except Exception as e:
+        logger.exception("获取一言时发生未知错误")
+        raise APIError(f"获取一言时发生未知错误: {str(e)}")
+
+
+def format_hitokoto(data: Dict[str, Any]) -> str:
+    """
+    使用模板格式化一言数据
+    
+    参数:
+        data: 一言数据
+        
+    返回:
+        str: 格式化后的一言文本
+    """
+    try:
+        return plugin_config.hitokoto_template.format(**data)
+    except KeyError as e:
+        logger.warning(f"格式化一言时缺少字段: {e}")
+        # 使用一个简单的备用模板
+        return f"{data['hitokoto']}"
+    except Exception as e:
+        logger.exception("格式化一言时发生错误")
+        return f"{data['hitokoto']}" 
