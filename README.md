@@ -107,8 +107,8 @@ pip install nonebot-plugin-hitokoto-plus
 | HITP_API_URL | str | 否 | https://v1.hitokoto.cn | 一言API地址 |  |
 | HITP_DEFAULT_TYPE | str | 否 | None | 默认一言类型，为空则随机 | a |
 | HITP_CD | int | 否 | 3 | 调用冷却时间（秒） |  |
-| HITP_COOLDOWN_CLEANUP_INTERVAL | int | 否 | 3600 | 冷却记录清理间隔（秒） |  |
-| HITP_USER_RETENTION_TIME | int | 否 | 7200 | 用户记录保留时间（秒） |  |
+| HITP_COOLDOWN_CLEANUP_INTERVAL | int | 否 | 360 | 冷却记录清理间隔（秒） |  |
+| HITP_USER_RETENTION_TIME | int | 否 | 720 | 用户记录保留时间（秒） |  |
 | HITP_FAVORITE_LIST_LIMIT | int | 否 | 10 | 收藏列表每页显示数量 |  |
 | HITP_FAVORITE_TIMEOUT | int | 否 | 30 | 收藏提示超时时间（秒） |  |
 | HITP_USE_WHITELIST | bool | 否 | False | 权限控制模式，True为白名单，False为黑名单 |  |
