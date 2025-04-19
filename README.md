@@ -147,7 +147,7 @@ pip install nonebot-plugin-hitokoto-plus
 
 ## 更新日志
 
-### 0.3.1
+### 0.3.1、0.3.2
 优化
 
 ### 0.3.0
