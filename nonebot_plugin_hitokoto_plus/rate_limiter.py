@@ -3,7 +3,7 @@ import time
 from datetime import datetime
 
 from nonebot.log import logger
-from nonebot import get_plugin_config, require
+from nonebot import get_plugin_config
 from nonebot_plugin_apscheduler import scheduler
 
 from .config import Config

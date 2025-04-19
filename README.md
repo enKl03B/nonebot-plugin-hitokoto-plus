@@ -147,7 +147,7 @@ pip install nonebot-plugin-hitokoto-plus
 
 ## 更新日志
 
-### 0.3.1、0.3.2
+### 0.3.1-0.3.3
 优化
 
 ### 0.3.0
@@ -189,7 +189,7 @@ pip install nonebot-plugin-hitokoto-plus
 - [nonebot-plugin-uninfo](https://github.com/RF-Tar-Railt/nonebot-plugin-uninfo) - Nonebot2 多平台的会话信息(用户、群组、频道)获取插件,实现对用户信息的获取 
 - [nonebot-plugin-apscheduler](https://github.com/nonebot/plugin-apscheduler)：NoneBot APScheduler 定时任务插件，实现冷却时间记录的清理
 
-以及所有相关项目❤ 
+以及所有相关项目和开发者❤ 
 
 ## 许可证
 MIT

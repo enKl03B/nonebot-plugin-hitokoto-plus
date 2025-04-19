@@ -4,15 +4,13 @@ from datetime import datetime
 
 from nonebot.adapters import Event
 from nonebot.log import logger
-from nonebot import get_plugin_config, require, get_driver
+from nonebot import get_plugin_config, get_driver
 
 # 导入alconna
 from nonebot_plugin_alconna import on_alconna, Args, Alconna, CommandResult
-
-# 仅导入插件，不立即导入模块
-require("nonebot_plugin_uninfo")
-# 先声明类型
-require("nonebot_plugin_apscheduler")
+# 直接导入模块
+from nonebot_plugin_uninfo import Uninfo
+from nonebot_plugin_apscheduler import scheduler
 
 from ..api import get_hitokoto, format_hitokoto, APIError
 from ..config import Config
@@ -40,8 +38,6 @@ last_call_time: Dict[str, float] = {}
 # 延迟导入，避免在模块加载时导入
 def setup_scheduler():
     """设置定时任务"""
-    # 这里才真正导入模块
-    from nonebot_plugin_apscheduler import scheduler
     # 使用 scheduler.scheduled_job 装饰器动态注册任务
     @scheduler.scheduled_job("interval", seconds=plugin_config.HITP_COOLDOWN_CLEANUP_INTERVAL, id="hitokoto_cooldown_cleanup")
     async def cleanup_cooldown_records():
@@ -87,8 +83,6 @@ async def _():
 @hitokoto_cmd.handle()
 async def handle_hitokoto(event: Event, result: CommandResult) -> None:
     """处理一言命令"""
-    # 延迟导入
-    from nonebot_plugin_uninfo import Uninfo
     
     # 获取会话信息
     session = Uninfo.from_event(event)

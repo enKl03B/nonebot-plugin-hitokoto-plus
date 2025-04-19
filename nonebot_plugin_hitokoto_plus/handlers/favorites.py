@@ -5,12 +5,12 @@ from datetime import datetime
 
 from nonebot.adapters import Event
 from nonebot.log import logger
-from nonebot import get_plugin_config, require, get_driver
+from nonebot import get_plugin_config, get_driver
 from nonebot_plugin_alconna import on_alconna, Args, Alconna, CommandResult, Option
 from nonebot_plugin_alconna.uniseg import UniMessage, Text, At
 
-# 只声明导入，不实际导入
-require("nonebot_plugin_uninfo")
+# 直接导入模块
+from nonebot_plugin_uninfo import Uninfo
 
 from ..config import Config
 from ..models import favorite_manager, HitokotoFavorite
@@ -69,8 +69,6 @@ delete_favorite_cmd = on_alconna(
 @favorite_list_cmd.handle()
 async def handle_favorite_list(event: Event, result: CommandResult) -> None:
     """处理收藏列表命令"""
-    # 延迟导入
-    from nonebot_plugin_uninfo import Uninfo
     
     # 获取会话
     session = Uninfo.from_event(event)
@@ -150,8 +148,6 @@ async def handle_favorite_list(event: Event, result: CommandResult) -> None:
 @add_favorite_cmd.handle()
 async def handle_add_favorite(event: Event) -> None:
     """处理收藏命令"""
-    # 延迟导入
-    from nonebot_plugin_uninfo import Uninfo
     
     # 获取会话
     session = Uninfo.from_event(event)
@@ -192,8 +188,6 @@ async def handle_add_favorite(event: Event) -> None:
 @view_favorite_cmd.handle()
 async def handle_view_favorite(event: Event, result: CommandResult) -> None:
     """处理查看收藏命令"""
-    # 延迟导入
-    from nonebot_plugin_uninfo import Uninfo
     
     # 获取会话
     session = Uninfo.from_event(event)
@@ -205,35 +199,35 @@ async def handle_view_favorite(event: Event, result: CommandResult) -> None:
     
     # 检查黑白名单
     if not check_permission(session):
-        logger.debug(f"用户 {composite_id} 因黑白名单限制被拒绝访问收藏功能")
+        logger.debug(f"用户 {composite_id} 因黑白名单限制被拒绝访问收藏查看功能")
         return
     
     # 检查频率限制
     if not await rate_limiter.check_rate_limit(composite_id, view_favorite_cmd.send):
         return
     
-    # 获取收藏序号参数
-    index = 0
-    if result.result and result.result.main_args and (index_arg := result.result.main_args.get("index")):
-        index = int(index_arg)
-    
-    if index <= 0:
-        await view_favorite_cmd.send("收藏序号必须大于0")
+    # 获取序号参数
+    if not result.result or "index" not in result.result.main_args:
+        await view_favorite_cmd.send(f"请提供要查看的收藏序号，例如：{cmd_prefix}一言查看收藏 1")
         return
+        
+    # 获取序号，注意序号从1开始，但索引从0开始
+    index = max(1, result.result.main_args["index"])
     
     # 获取用户收藏列表
     favorites = favorite_manager.get_favorites(platform, user_id)
     
+    # 检查序号是否有效
     if not favorites:
         await view_favorite_cmd.send("您还没有收藏任何一言")
         return
-    
+        
     if index > len(favorites):
-        await view_favorite_cmd.send(f"序号超出范围，您只有 {len(favorites)} 条收藏")
+        await view_favorite_cmd.send(f"序号超出范围，您共有 {len(favorites)} 条收藏")
         return
     
-    # 获取收藏的一言
-    favorite = favorites[index-1]
+    # 获取指定收藏，注意索引从0开始
+    favorite = favorites[index - 1]
     
     # 构建收藏消息
     msg = f"收藏序号: {index}\n"
@@ -254,8 +248,6 @@ async def handle_view_favorite(event: Event, result: CommandResult) -> None:
 @delete_favorite_cmd.handle()
 async def handle_delete_favorite(event: Event, result: CommandResult) -> None:
     """处理删除收藏命令"""
-    # 延迟导入
-    from nonebot_plugin_uninfo import Uninfo
     
     # 获取会话
     session = Uninfo.from_event(event)
@@ -267,37 +259,39 @@ async def handle_delete_favorite(event: Event, result: CommandResult) -> None:
     
     # 检查黑白名单
     if not check_permission(session):
-        logger.debug(f"用户 {composite_id} 因黑白名单限制被拒绝访问收藏功能")
+        logger.debug(f"用户 {composite_id} 因黑白名单限制被拒绝访问收藏删除功能")
         return
     
     # 检查频率限制
     if not await rate_limiter.check_rate_limit(composite_id, delete_favorite_cmd.send):
         return
     
-    # 获取收藏序号参数
-    index = 0
-    if result.result and result.result.main_args and (index_arg := result.result.main_args.get("index")):
-        index = int(index_arg)
-    
-    if index <= 0:
-        await delete_favorite_cmd.send("收藏序号必须大于0")
+    # 获取序号参数
+    if not result.result or "index" not in result.result.main_args:
+        await delete_favorite_cmd.send(f"请提供要删除的收藏序号，例如：{cmd_prefix}一言删除收藏 1")
         return
+        
+    # 获取序号，注意序号从1开始，但索引从0开始
+    index = max(1, result.result.main_args["index"])
     
     # 获取用户收藏列表
     favorites = favorite_manager.get_favorites(platform, user_id)
     
+    # 检查序号是否有效
     if not favorites:
         await delete_favorite_cmd.send("您还没有收藏任何一言")
         return
-    
+        
     if index > len(favorites):
-        await delete_favorite_cmd.send(f"序号超出范围，您只有 {len(favorites)} 条收藏")
+        await delete_favorite_cmd.send(f"序号超出范围，您共有 {len(favorites)} 条收藏")
         return
     
-    # 删除收藏
-    favorite = favorites[index-1]
-    short_content = favorite.content[:20] + "..." if len(favorite.content) > 20 else favorite.content
-    favorite_manager.remove_favorite(platform, user_id, index-1)
-    logger.info(f"用户 {composite_id} 删除了收藏: {short_content}")
+    # 获取指定收藏，注意索引从0开始
+    favorite = favorites[index - 1]
     
-    await delete_favorite_cmd.send(f"收藏已删除: {short_content}") 
+    # 删除收藏
+    favorite_manager.delete_favorite(platform, user_id, favorite.uuid)
+    logger.info(f"用户 {composite_id} 删除了收藏: {favorite.content[:20]}...")
+    
+    # 使用send方法发送消息
+    await delete_favorite_cmd.send(f"已删除收藏 #{index}") 

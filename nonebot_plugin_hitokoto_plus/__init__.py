@@ -1,5 +1,12 @@
-from nonebot.plugin import PluginMetadata
-from nonebot_plugin_alconna.uniseg import SupportAdapterModule
+from nonebot.plugin import PluginMetadata, inherit_supported_adapters
+from nonebot import require
+
+# 集中导入所有依赖的库插件
+require("nonebot_plugin_alconna")
+require("nonebot_plugin_uninfo")
+require("nonebot_plugin_apscheduler")
+require("nonebot_plugin_localstore")
+
 from .config import Config
 from .rate_limiter import rate_limiter
 import importlib
@@ -24,5 +31,5 @@ __plugin_meta__ = PluginMetadata(
     homepage="https://github.com/enKl03B/nonebot-plugin-hitokoto-plus",
     type="application",
     config=Config,
-    supported_adapters=set(m.value for m in SupportAdapterModule.__members__.values()),
+    supported_adapters=inherit_supported_adapters("nonebot_plugin_alconna", "nonebot_plugin_uninfo", "nonebot_plugin_apscheduler"),
 ) 

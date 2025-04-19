@@ -4,11 +4,10 @@ import json
 import os
 from pathlib import Path
 
-from nonebot import get_driver, require
+from nonebot import get_driver
 from nonebot.log import logger
 
-# 导入localstore插件
-require("nonebot_plugin_localstore")
+# 导入localstore
 import nonebot_plugin_localstore as store
 
 
