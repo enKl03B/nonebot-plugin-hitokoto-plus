@@ -4,7 +4,7 @@ from datetime import datetime
 
 from nonebot.adapters import Event
 from nonebot.log import logger
-from nonebot import get_plugin_config, require
+from nonebot import get_plugin_config, require, get_driver
 
 # 导入alconna
 from nonebot_plugin_alconna import on_alconna, Args, Alconna, CommandResult
@@ -70,12 +70,18 @@ def setup_scheduler():
         else:
             logger.debug(f"[{current_time_str}] 没有过期冷却记录需要清理，当前记录数: {len(last_call_time)}")
 
-# 在模块被加载完成后设置定时任务
-try:
-    setup_scheduler()
-    logger.info("定时任务设置成功")
-except Exception as e:
-    logger.error(f"设置定时任务失败: {e}")
+# 添加插件初始化函数
+driver = get_driver()
+
+@driver.on_startup
+async def _():
+    """在机器人启动时进行初始化"""
+    try:
+        # 在这里进行初始化操作
+        setup_scheduler()
+        logger.info("一言+定时任务设置成功")
+    except Exception as e:
+        logger.error(f"一言+定时任务设置失败: {e}")
 
 
 @hitokoto_cmd.handle()
