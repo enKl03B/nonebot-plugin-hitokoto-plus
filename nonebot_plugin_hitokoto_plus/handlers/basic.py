@@ -5,15 +5,14 @@ from datetime import datetime
 from nonebot.adapters import Event
 from nonebot.log import logger
 from nonebot import get_plugin_config, require
+
+# 导入alconna
 from nonebot_plugin_alconna import on_alconna, Args, Alconna, CommandResult
 
-# 导入uninfo插件
+# 仅导入插件，不立即导入模块
 require("nonebot_plugin_uninfo")
-from nonebot_plugin_uninfo import Uninfo
-
-# 导入apscheduler插件
+# 先声明类型
 require("nonebot_plugin_apscheduler")
-from nonebot_plugin_apscheduler import scheduler
 
 from ..api import get_hitokoto, format_hitokoto, APIError
 from ..config import Config
@@ -38,38 +37,56 @@ hitokoto_cmd = on_alconna(
 # 格式: {platform:user_id: last_time}
 last_call_time: Dict[str, float] = {}
 
-
-@scheduler.scheduled_job("interval", seconds=plugin_config.HITP_COOLDOWN_CLEANUP_INTERVAL, id="hitokoto_cooldown_cleanup")
-async def cleanup_cooldown_records():
-    """定时清理过期的冷却记录"""
-    global last_call_time
-    
-    if not last_call_time:
-        return
-    
-    current_time = time.time()
-    current_time_str = datetime.fromtimestamp(current_time).strftime("%Y-%m-%d %H:%M:%S")
-    
-    # 直接在列表创建时添加过期的用户ID
-    expired_users = [
-        user_id for user_id, last_time in last_call_time.items()
-        if current_time - last_time > plugin_config.HITP_USER_RETENTION_TIME
-    ]
-    
-    if expired_users:
-        # 删除过期记录
-        for user_id in expired_users:
-            del last_call_time[user_id]
+# 延迟导入，避免在模块加载时导入
+def setup_scheduler():
+    """设置定时任务"""
+    # 这里才真正导入模块
+    from nonebot_plugin_apscheduler import scheduler
+    # 使用 scheduler.scheduled_job 装饰器动态注册任务
+    @scheduler.scheduled_job("interval", seconds=plugin_config.HITP_COOLDOWN_CLEANUP_INTERVAL, id="hitokoto_cooldown_cleanup")
+    async def cleanup_cooldown_records():
+        """定时清理过期的冷却记录"""
+        global last_call_time
         
-        # 记录清理结果
-        logger.info(f"[{current_time_str}] 已清理 {len(expired_users)} 条过期冷却记录，当前记录数: {len(last_call_time)}")
-    else:
-        logger.debug(f"[{current_time_str}] 没有过期冷却记录需要清理，当前记录数: {len(last_call_time)}")
+        if not last_call_time:
+            return
+        
+        current_time = time.time()
+        current_time_str = datetime.fromtimestamp(current_time).strftime("%Y-%m-%d %H:%M:%S")
+        
+        # 直接在列表创建时添加过期的用户ID
+        expired_users = [
+            user_id for user_id, last_time in last_call_time.items()
+            if current_time - last_time > plugin_config.HITP_USER_RETENTION_TIME
+        ]
+        
+        if expired_users:
+            # 删除过期记录
+            for user_id in expired_users:
+                del last_call_time[user_id]
+            
+            # 记录清理结果
+            logger.info(f"[{current_time_str}] 已清理 {len(expired_users)} 条过期冷却记录，当前记录数: {len(last_call_time)}")
+        else:
+            logger.debug(f"[{current_time_str}] 没有过期冷却记录需要清理，当前记录数: {len(last_call_time)}")
+
+# 在模块被加载完成后设置定时任务
+try:
+    setup_scheduler()
+    logger.info("定时任务设置成功")
+except Exception as e:
+    logger.error(f"设置定时任务失败: {e}")
 
 
 @hitokoto_cmd.handle()
-async def handle_hitokoto(event: Event, result: CommandResult, session: Uninfo) -> None:
+async def handle_hitokoto(event: Event, result: CommandResult) -> None:
     """处理一言命令"""
+    # 延迟导入
+    from nonebot_plugin_uninfo import Uninfo
+    
+    # 获取会话信息
+    session = Uninfo.from_event(event)
+    
     hitokoto_type: Optional[str] = None
     
     # 获取跨平台用户标识
@@ -132,12 +149,12 @@ async def handle_hitokoto(event: Event, result: CommandResult, session: Uninfo) 
         raise new_error from e
 
 
-def check_permission(session: Uninfo) -> bool:
+def check_permission(session) -> bool:
     """
     检查黑白名单权限
     
     参数:
-        session: Uninfo会话
+        session: 会话对象
         
     返回:
         bool: 是否有权限使用，True表示有权限，False表示无权限

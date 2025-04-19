@@ -9,9 +9,8 @@ from nonebot import get_plugin_config, require, get_driver
 from nonebot_plugin_alconna import on_alconna, Args, Alconna, CommandResult, Option
 from nonebot_plugin_alconna.uniseg import UniMessage, Text, At
 
-# 导入uninfo插件
+# 只声明导入，不实际导入
 require("nonebot_plugin_uninfo")
-from nonebot_plugin_uninfo import Uninfo
 
 from ..config import Config
 from ..models import favorite_manager, HitokotoFavorite
@@ -68,8 +67,14 @@ delete_favorite_cmd = on_alconna(
 
 
 @favorite_list_cmd.handle()
-async def handle_favorite_list(event: Event, result: CommandResult, session: Uninfo) -> None:
+async def handle_favorite_list(event: Event, result: CommandResult) -> None:
     """处理收藏列表命令"""
+    # 延迟导入
+    from nonebot_plugin_uninfo import Uninfo
+    
+    # 获取会话
+    session = Uninfo.from_event(event)
+    
     # 获取跨平台用户标识
     platform = session.adapter
     user_id = session.user.id
@@ -143,8 +148,14 @@ async def handle_favorite_list(event: Event, result: CommandResult, session: Uni
 
 
 @add_favorite_cmd.handle()
-async def handle_add_favorite(event: Event, session: Uninfo) -> None:
+async def handle_add_favorite(event: Event) -> None:
     """处理收藏命令"""
+    # 延迟导入
+    from nonebot_plugin_uninfo import Uninfo
+    
+    # 获取会话
+    session = Uninfo.from_event(event)
+    
     # 获取跨平台用户标识
     platform = session.adapter
     user_id = session.user.id
@@ -179,8 +190,14 @@ async def handle_add_favorite(event: Event, session: Uninfo) -> None:
     
 
 @view_favorite_cmd.handle()
-async def handle_view_favorite(event: Event, result: CommandResult, session: Uninfo) -> None:
+async def handle_view_favorite(event: Event, result: CommandResult) -> None:
     """处理查看收藏命令"""
+    # 延迟导入
+    from nonebot_plugin_uninfo import Uninfo
+    
+    # 获取会话
+    session = Uninfo.from_event(event)
+    
     # 获取跨平台用户标识
     platform = session.adapter
     user_id = session.user.id
@@ -235,8 +252,14 @@ async def handle_view_favorite(event: Event, result: CommandResult, session: Uni
 
 
 @delete_favorite_cmd.handle()
-async def handle_delete_favorite(event: Event, result: CommandResult, session: Uninfo) -> None:
+async def handle_delete_favorite(event: Event, result: CommandResult) -> None:
     """处理删除收藏命令"""
+    # 延迟导入
+    from nonebot_plugin_uninfo import Uninfo
+    
+    # 获取会话
+    session = Uninfo.from_event(event)
+    
     # 获取跨平台用户标识
     platform = session.adapter
     user_id = session.user.id
