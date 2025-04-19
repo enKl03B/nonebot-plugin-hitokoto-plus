@@ -1,5 +1,8 @@
 # 一言+
 
+> [!IMPORTANT]
+> 项目正在重构，新版将**完全不兼容**0.2.4及以下版本
+
 （可能是）更好的一言插件！
 
 一个基于 [NoneBot2](https://github.com/nonebot/nonebot2) 的一言（Hitokoto）插件，用于获取来自 [Hitokoto.cn](https://hitokoto.cn/) 的一句话。

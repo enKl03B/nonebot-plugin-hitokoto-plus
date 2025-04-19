@@ -2,14 +2,10 @@ from nonebot import require
 # 优先导入和初始化 localstore
 require("nonebot_plugin_localstore")
 import nonebot_plugin_localstore as store
-import nonebot_plugin_localstore.config as store_config
 
 # 显式 require 依赖 uninfo
 require("nonebot_plugin_uninfo")
 from nonebot_plugin_uninfo import Uninfo 
-
-# 设置插件标识符
-store_config.plugin_name = "nonebot_plugin_hitokoto_plus"
 
 # 显式 require 依赖 alconna
 require("nonebot_plugin_alconna")
@@ -109,7 +105,7 @@ hitokoto_alc = Alconna(
     # 直接在Args中使用编译后的正则表达式模式
     Args["type?", compiled_type_pattern],
     Option("--help", help_text="显示帮助信息"),
-    separators=[" "]  # 明确指定分隔符，避免匹配到"一言收藏"等命令
+    separators=[" "],  # 明确指定分隔符，避免匹配到"一言收藏"等命令
 )
 
 # 收藏命令 - 明确定义一个完全独立的指令
@@ -572,6 +568,13 @@ async def handle_hitokoto(matcher: Matcher, session: Uninfo): # 修改依赖注�
             
             # 检查类型是否有效
             if input_type:
+                # 处理re.Match对象
+                if hasattr(input_type, 'group') and callable(input_type.group):
+                    try:
+                        input_type = input_type.group(0)
+                    except Exception as e:
+                        logger.warning(f"从re.Match提取类型失败: {e}")
+                
                 # 如果是单字符且在有效范围内
                 if isinstance(input_type, str) and len(input_type) == 1 and input_type in "abcdefghijkl":
                     sentence_type = input_type
@@ -712,49 +715,84 @@ async def handle_favorite(matcher: Matcher, session: Uninfo): # 使用 Uninfo
     # 检查Alconna解析结果
     alconna_result = None
     for key in matcher.state:
-        if 'alconna' in key.lower() and matcher.state[key]: # 查找包含 alconna 的键
-            if hasattr(matcher.state[key], 'matched') and matcher.state[key].matched: # 确保是匹配成功的结果
-                 alconna_result = matcher.state[key]
-                 break
-             # 兼容旧版或不同结构的 state
-            elif isinstance(matcher.state[key], dict) and matcher.state[key].get('matched'):
-                 alconna_result = matcher.state[key]
-                 break
+        logger.debug(f"检查matcher.state键: {key}, 值类型: {type(matcher.state[key])}")
+        if '_alc_result' in key and matcher.state[key]:
+            alconna_result = matcher.state[key]
+            logger.debug(f"找到Alconna结果: {alconna_result}")
+            break
 
-    # Alconna 会自动处理 --help，这里无需手动检查文本
-
-    if alconna_result and hasattr(alconna_result, "subcommands") and alconna_result.subcommands:
-        logger.debug(f"使用Alconna解析结果处理子命令: {alconna_result.subcommands}")
-        # 检查是否有列表子命令
-        if "列表" in alconna_result.subcommands:
-            page = alconna_result.subcommands["列表"].get("page")
-            await handle_list_favorites(combined_key, session, page)
-            return
-        # 检查是否有删除子命令
-        elif "删除" in alconna_result.subcommands:
-            indexes = alconna_result.subcommands["删除"].get("indexes")
-            if not indexes:
-                 await UniMessage("请指定要删除的收藏序号，例如：/一言收藏删除 1").send()
-                 return
-            await handle_delete_favorite(combined_key, indexes)
-            return
-        # 检查是否有详情子命令
-        elif "详情" in alconna_result.subcommands:
-            indexes = alconna_result.subcommands["详情"].get("indexes")
-            if not indexes:
-                 await UniMessage("请指定要查看详情的收藏序号，例如：/一言收藏详情 1").send()
-                 return
-            await handle_detail_favorite(combined_key, indexes)
-            return
-        else:
-            # 存在子命令但无法识别 (理论上不应发生，除非 Alconna 定义有问题)
-            logger.warning(f"无法识别的收藏子命令: {alconna_result.subcommands}")
-            await UniMessage("无法识别的收藏子命令").send()
-            return
-    else:
-        # 没有匹配到任何子命令，执行默认操作：添加收藏
-        logger.debug("未匹配到收藏子命令，执行添加收藏操作")
-        await handle_add_favorite(combined_key)
+    # 日志输出Alconna结果的详细信息
+    if alconna_result:
+        logger.debug(f"Alconna结果类型: {type(alconna_result)}")
+        logger.debug(f"Alconna结果属性: {dir(alconna_result)}")
+        
+        # 尝试获取子命令信息
+        has_subcommands = False
+        subcommands_info = None
+        
+        # 兼容不同版本的Alconna结果结构
+        if hasattr(alconna_result, "subcommands") and alconna_result.subcommands:
+            has_subcommands = True
+            subcommands_info = alconna_result.subcommands
+        elif hasattr(alconna_result, "result") and hasattr(alconna_result.result, "subcommands"):
+            has_subcommands = True
+            subcommands_info = alconna_result.result.subcommands
+        elif hasattr(alconna_result, "result") and isinstance(alconna_result.result, dict) and "subcommands" in alconna_result.result:
+            has_subcommands = True
+            subcommands_info = alconna_result.result["subcommands"]
+            
+        if has_subcommands:
+            logger.debug(f"子命令信息: {subcommands_info}")
+            
+            # 处理列表子命令
+            if "列表" in subcommands_info:
+                # 尝试获取page参数，兼容不同结构
+                page = None
+                list_cmd = subcommands_info["列表"]
+                if isinstance(list_cmd, dict) and "page" in list_cmd:
+                    page = list_cmd["page"]
+                elif hasattr(list_cmd, "get"):
+                    page = list_cmd.get("page")
+                logger.debug(f"列表子命令页码: {page}")
+                await handle_list_favorites(combined_key, session, page)
+                return
+                
+            # 处理删除子命令
+            elif "删除" in subcommands_info:
+                # 尝试获取indexes参数，兼容不同结构
+                indexes = None
+                delete_cmd = subcommands_info["删除"]
+                if isinstance(delete_cmd, dict) and "indexes" in delete_cmd:
+                    indexes = delete_cmd["indexes"]
+                elif hasattr(delete_cmd, "get"):
+                    indexes = delete_cmd.get("indexes")
+                
+                logger.debug(f"删除子命令索引: {indexes}")
+                
+                if not indexes:
+                    await UniMessage("请指定要删除的收藏序号，例如：/一言收藏删除 1").send()
+                    return
+                await handle_delete_favorite(combined_key, indexes)
+                return
+                
+            # 处理详情子命令
+            elif "详情" in subcommands_info:
+                # 尝试获取indexes参数，兼容不同结构
+                indexes = None
+                detail_cmd = subcommands_info["详情"]
+                if isinstance(detail_cmd, dict) and "indexes" in detail_cmd:
+                    indexes = detail_cmd["indexes"]
+                elif hasattr(detail_cmd, "get"):
+                    indexes = detail_cmd.get("indexes")
+                
+                logger.debug(f"详情子命令索引: {indexes}")
+                
+                if not indexes:
+                    await UniMessage("请指定要查看详情的收藏序号，例如：/一言收藏详情 1").send()
+                    return
+                await handle_detail_favorite(combined_key, indexes)
+                return
+        
 
 async def handle_add_favorite(combined_key: str):
     """添加收藏处理"""

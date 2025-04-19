@@ -181,5 +181,11 @@ pyrightconfig.json
 # Visual Studio 文件夹
 .vs/
 
+# 忽略compat.py
+compat.py
+
+# Cursor IDE
+.cursor/
+
 
 
