@@ -1,6 +1,6 @@
 from nonebot.plugin import PluginMetadata
 from nonebot_plugin_alconna.uniseg import SupportAdapterModule
-from nonebot_plugin_uninfo.constraint import SupportAdapterModule as UninfoSupportAdapterModule
+from nonebot_plugin_uninfo.constraint import SupportAdapterModule as UniInfoSupportAdapterModule
 from .config import Config
 from .rate_limiter import rate_limiter
 import importlib
@@ -18,7 +18,7 @@ from .handlers import (
 )
 
 
-__supported_adapters__ = set(m.value for m in SupportAdapterModule.__members__.values()) | set(m.value for m in UninfoSupportAdapterModule.__members__.values())
+__supported_adapters__ = set(m.value for m in SupportAdapterModule.__members__.values()) | set(m.value for m in UniInfoSupportAdapterModule.__members__.values())
 
 __plugin_meta__ = PluginMetadata(
     name="一言+",
