@@ -1,6 +1,5 @@
 from nonebot.plugin import PluginMetadata
 from nonebot_plugin_alconna.uniseg import SupportAdapterModule
-from nonebot_plugin_uninfo.constraint import SupportAdapterModule as UniInfoSupportAdapterModule
 from .config import Config
 from .rate_limiter import rate_limiter
 import importlib
@@ -18,8 +17,6 @@ from .handlers import (
 )
 
 
-__supported_adapters__ = set(m.value for m in SupportAdapterModule.__members__.values()) | set(m.value for m in UniInfoSupportAdapterModule.__members__.values())
-
 __plugin_meta__ = PluginMetadata(
     name="一言+",
     description="（可能是）更好的一言插件！",
@@ -27,5 +24,5 @@ __plugin_meta__ = PluginMetadata(
     homepage="https://github.com/enKl03B/nonebot-plugin-hitokoto-plus",
     type="application",
     config=Config,
-    supported_adapters=__supported_adapters__,
+    supported_adapters=set(m.value for m in SupportAdapterModule.__members__.values()),
 ) 
