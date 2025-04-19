@@ -52,16 +52,16 @@ async def get_hitokoto(
     if hitokoto_type:
         # 清理字符串，去除前后空格
         hitokoto_type = hitokoto_type.strip()
-        logger.debug(f"处理类型参数: {hitokoto_type}, 类型映射表: {plugin_config.hitokoto_type_map}")
+        logger.debug(f"处理类型参数: {hitokoto_type}, 类型映射表: {plugin_config.HITP_TYPE_MAP}")
         
         # 如果提供的是中文类型名称，转换为对应的类型代码
-        if hitokoto_type in plugin_config.hitokoto_type_map:
-            params["c"] = plugin_config.hitokoto_type_map[hitokoto_type]
+        if hitokoto_type in plugin_config.HITP_TYPE_MAP:
+            params["c"] = plugin_config.HITP_TYPE_MAP[hitokoto_type]
             logger.debug(f"找到类型映射: {hitokoto_type} -> {params['c']}")
         else:
             # 尝试进行不区分大小写的匹配
             matched = False
-            for name, code in plugin_config.hitokoto_type_map.items():
+            for name, code in plugin_config.HITP_TYPE_MAP.items():
                 if name.lower() == hitokoto_type.lower():
                     params["c"] = code
                     logger.debug(f"不区分大小写匹配到类型: {name} -> {code}")
@@ -72,17 +72,17 @@ async def get_hitokoto(
             if not matched:
                 params["c"] = hitokoto_type
             logger.debug(f"使用原始类型代码: {hitokoto_type}")
-    elif plugin_config.hitokoto_default_type:
-        params["c"] = plugin_config.hitokoto_default_type
+    elif plugin_config.HITP_DEFAULT_TYPE:
+        params["c"] = plugin_config.HITP_DEFAULT_TYPE
         
     # 添加JSON格式参数
     params["encode"] = "json"
     
     try:
         async with httpx.AsyncClient() as client:
-            logger.debug(f"正在请求一言API: {plugin_config.hitokoto_api_url}，参数: {params}")
+            logger.debug(f"正在请求一言API: {plugin_config.HITP_API_URL}，参数: {params}")
             response = await client.get(
-                str(plugin_config.hitokoto_api_url), 
+                str(plugin_config.HITP_API_URL), 
                 params=params,
                 timeout=TIMEOUT  # 使用固定超时时间
             )
@@ -117,10 +117,11 @@ async def get_hitokoto(
                 # 反向查找类型映射表，获取中文名称
                 type_code = data["type"]
                 type_name = "未知类型"
-                for name, code in plugin_config.hitokoto_type_map.items():
-                    if code == type_code:
-                        type_name = name
-                        break
+                # 使用next()函数替代for循环查找匹配的类型名称
+                try:
+                    type_name = next(name for name, code in plugin_config.HITP_TYPE_MAP.items() if code == type_code)
+                except StopIteration:
+                    pass
                 data["type_name"] = type_name
                 logger.debug(f"API返回类型代码: {type_code}, 映射为类型名称: {type_name}")
             else:
@@ -128,21 +129,21 @@ async def get_hitokoto(
                 
             return data
             
-    except httpx.TimeoutException:
+    except httpx.TimeoutException as e:
         logger.error("请求一言API超时")
-        raise APIError("请求一言API超时，请稍后再试")
+        raise APIError("请求一言API超时，请稍后再试") from e
     except httpx.HTTPStatusError as e:
         logger.error(f"请求一言API失败: HTTP {e.response.status_code}")
-        raise APIError(f"请求一言API失败: HTTP {e.response.status_code}")
+        raise APIError(f"请求一言API失败: HTTP {e.response.status_code}") from e
     except httpx.RequestError as e:
         logger.error(f"请求一言API网络错误: {str(e)}")
-        raise APIError(f"请求一言API网络错误: {str(e)}")
-    except json.JSONDecodeError:
+        raise APIError(f"请求一言API网络错误: {str(e)}") from e
+    except json.JSONDecodeError as e:
         logger.error("一言API返回非JSON数据")
-        raise APIError("一言API返回数据解析失败")
+        raise APIError("一言API返回数据解析失败") from e
     except Exception as e:
         logger.exception("获取一言时发生未知错误")
-        raise APIError(f"获取一言时发生未知错误: {str(e)}")
+        raise APIError(f"获取一言时发生未知错误: {str(e)}") from e
 
 
 def format_hitokoto(data: Dict[str, Any]) -> str:
@@ -156,7 +157,7 @@ def format_hitokoto(data: Dict[str, Any]) -> str:
         str: 格式化后的一言文本
     """
     try:
-        return plugin_config.hitokoto_template.format(**data)
+        return plugin_config.HITP_TEMPLATE.format(**data)
     except KeyError as e:
         logger.warning(f"格式化一言时缺少字段: {e}")
         # 使用一个简单的备用模板

@@ -1,12 +1,13 @@
 from typing import Optional, List
 import math
+import time
+from datetime import datetime
 
 from nonebot.adapters import Event
 from nonebot.log import logger
-from nonebot import get_plugin_config
+from nonebot import get_plugin_config, require, get_driver
 from nonebot_plugin_alconna import on_alconna, Args, Alconna, CommandResult, Option
 from nonebot_plugin_alconna.uniseg import UniMessage, Text, At
-from nonebot import require
 
 # 导入uninfo插件
 require("nonebot_plugin_uninfo")
@@ -15,9 +16,17 @@ from nonebot_plugin_uninfo import Uninfo
 from ..config import Config
 from ..models import favorite_manager, HitokotoFavorite
 from .basic import check_permission
+from ..api import get_hitokoto, format_hitokoto, APIError
+from ..rate_limiter import rate_limiter
 
 # 获取插件配置
 plugin_config = get_plugin_config(Config)
+
+# 获取全局配置
+global_config = get_driver().config
+# 获取命令前缀，默认为 "/"
+cmd_start = getattr(global_config, "command_start", {"/", })
+cmd_prefix = next(iter(cmd_start)) if cmd_start else "/"
 
 # 创建收藏相关命令
 favorite_list_cmd = on_alconna(
@@ -65,24 +74,27 @@ async def handle_favorite_list(event: Event, result: CommandResult, session: Uni
     platform = session.adapter
     user_id = session.user.id
     user_name = session.user.name  # 获取用户昵称
+    composite_id = f"{platform}:{user_id}"
     
     # 检查黑白名单
     if not check_permission(session):
-        logger.info(f"用户 {platform}:{user_id} 因黑白名单限制被拒绝访问收藏列表")
+        logger.debug(f"用户 {composite_id} 因黑白名单限制被拒绝访问收藏列表")
+        return
+    
+    # 检查频率限制
+    if not await rate_limiter.check_rate_limit(composite_id, favorite_list_cmd.send):
         return
     
     # 获取页码参数
     page = 1
-    if result.result and "-p" in result.result.options:
-        page_arg = result.result.options["-p"]
-        if page_arg and "page" in page_arg:
+    if result.result and "-p" in result.result.options and (page_arg := result.result.options["-p"]) and "page" in page_arg:
             page = max(1, page_arg["page"])
     
     # 获取用户收藏列表
     favorites = favorite_manager.get_favorites(platform, user_id)
     
     # 计算总页数
-    page_size = plugin_config.hitokoto_favorite_list_limit
+    page_size = plugin_config.HITP_FAVORITE_LIST_LIMIT
     total_pages = max(1, math.ceil(len(favorites) / page_size))
     
     # 确保页码有效
@@ -98,87 +110,128 @@ async def handle_favorite_list(event: Event, result: CommandResult, session: Uni
         return
     
     # 构建收藏列表消息
-    msg_list = []
-    msg_list.append(f"{user_name} 的一言收藏")
-    msg_list.append(f"（{page}/{total_pages}页，共{len(favorites)}条）")
-    msg_list.append("----------")
-    for i, fav in enumerate(current_page_favorites, start=start_idx + 1):
-        # 使用简短显示模板
-        short_content = fav.content
-        if len(short_content) > 30:
-            short_content = short_content[:30] + "..."
-        
-        msg_list.append(f"{i}. {short_content}")
+    msg_list = [
+        f"{user_name} 的一言收藏",
+        f"（{page}/{total_pages}页，共{len(favorites)}条）",
+        "----------"
+    ]
+
+    msg_list.extend([
+        f"{i}. {fav.content[:30] + '...' if len(fav.content) > 30 else fav.content}"
+        for i, fav in enumerate(current_page_favorites, start=start_idx + 1)
+    ])
     
     msg_list.append("----------")
-    msg_list.append("\n使用 /一言查看收藏 [序号] 可查看详情")
-    msg_list.append("使用 /一言删除收藏 [序号] 可删除收藏")
-    msg_list.append("使用 /一言收藏列表 -p [页码] 可查看其他页")
+    
+    # 根据总页数添加不同的提示
+    if total_pages > 1:
+        if page < total_pages:
+            msg_list.append(f"使用 {cmd_prefix}一言收藏列表 -p {page+1} 查看下一页")
+        else:
+            msg_list.append(f"已经是最后一页")
+        
+        if page > 1:
+            msg_list.append(f"使用 {cmd_prefix}一言收藏列表 -p {page-1} 查看上一页")
+    
+    # 添加操作提示
+    msg_list.extend([
+        f"使用 {cmd_prefix}一言查看收藏 [序号] 查看详情",
+        f"使用 {cmd_prefix}一言删除收藏 [序号] 删除收藏"
+    ])
     
     await favorite_list_cmd.send("\n".join(msg_list))
 
 
 @add_favorite_cmd.handle()
 async def handle_add_favorite(event: Event, session: Uninfo) -> None:
-    """处理添加收藏命令"""
+    """处理收藏命令"""
     # 获取跨平台用户标识
     platform = session.adapter
     user_id = session.user.id
+    composite_id = f"{platform}:{user_id}"
     
     # 检查黑白名单
     if not check_permission(session):
-        logger.debug(f"用户 {platform}:{user_id} 因黑白名单限制被拒绝添加收藏")
+        logger.debug(f"用户 {composite_id} 因黑白名单限制被拒绝访问收藏功能")
+        return
+    
+    # 检查频率限制
+    if not await rate_limiter.check_rate_limit(composite_id, add_favorite_cmd.send):
+        return
+    
+    # 尝试获取用户上次获取的一言
+    hitokoto_data = favorite_manager.get_last_hitokoto(platform, user_id)
+    if not hitokoto_data:
+        await add_favorite_cmd.send("您还没有获取过一言，或者收藏超时了")
+        return
+        
+    # 检查是否已经收藏
+    if favorite_manager.is_favorite_exists(platform, user_id, hitokoto_data.uuid):
+        await add_favorite_cmd.send("该一言已经收藏过了")
         return
     
     # 添加收藏
-    favorite = favorite_manager.add_favorite(platform, user_id)
+    favorite_manager.add_favorite(platform, user_id, hitokoto_data)
+    logger.info(f"用户 {composite_id} 收藏了一言: {hitokoto_data.content[:20]}...")
     
-    if favorite is None:
-        await add_favorite_cmd.send("添加收藏失败，您可能尚未获取一言或已经收藏过该条目")
-        return
+    # 使用send方法发送消息
+    await add_favorite_cmd.send(f"收藏成功！可以使用 {cmd_prefix}一言收藏列表 命令查看您的收藏列表")
     
-    # 发送成功消息
-    await add_favorite_cmd.send(f"已收藏：\n{favorite.content}")
-
 
 @view_favorite_cmd.handle()
 async def handle_view_favorite(event: Event, result: CommandResult, session: Uninfo) -> None:
-    """处理查看收藏详情命令"""
+    """处理查看收藏命令"""
     # 获取跨平台用户标识
     platform = session.adapter
     user_id = session.user.id
+    composite_id = f"{platform}:{user_id}"
     
     # 检查黑白名单
     if not check_permission(session):
-        logger.debug(f"用户 {platform}:{user_id} 因黑白名单限制被拒绝查看收藏")
+        logger.debug(f"用户 {composite_id} 因黑白名单限制被拒绝访问收藏功能")
         return
     
-    # 获取序号参数
+    # 检查频率限制
+    if not await rate_limiter.check_rate_limit(composite_id, view_favorite_cmd.send):
+        return
+    
+    # 获取收藏序号参数
     index = 0
-    if result.result and "index" in result.result.main_args:
-        index = result.result.main_args["index"]
-        
-    # 索引转换（用户输入是从1开始，程序内部是从0开始）
-    index = max(1, index) - 1
+    if result.result and result.result.main_args and (index_arg := result.result.main_args.get("index")):
+        index = int(index_arg)
     
-    # 获取指定收藏
-    favorite = favorite_manager.get_favorite_by_index(platform, user_id, index)
-    
-    if favorite is None:
-        await view_favorite_cmd.send(f"未找到序号为 {index + 1} 的收藏")
+    if index <= 0:
+        await view_favorite_cmd.send("收藏序号必须大于0")
         return
     
-    # 格式化收藏详情
-    formatted_favorite = (
-        f"{favorite.content}\n"
-        f"----------\n"
-        f"类型：{favorite.type_name}\n"
-        f"作者：{favorite.creator}\n"
-        f"来源：{favorite.source}\n"
-        f"收藏时间：{favorite.created_at.strftime('%Y-%m-%d %H:%M:%S')}"
-    )
+    # 获取用户收藏列表
+    favorites = favorite_manager.get_favorites(platform, user_id)
     
-    await view_favorite_cmd.send(formatted_favorite)
+    if not favorites:
+        await view_favorite_cmd.send("您还没有收藏任何一言")
+        return
+    
+    if index > len(favorites):
+        await view_favorite_cmd.send(f"序号超出范围，您只有 {len(favorites)} 条收藏")
+        return
+    
+    # 获取收藏的一言
+    favorite = favorites[index-1]
+    
+    # 构建收藏消息
+    msg = f"收藏序号: {index}\n"
+    msg += f"内容: {favorite.content}\n"
+    msg += f"类型: {favorite.type_name}\n"
+    
+    if favorite.source:
+        msg += f"来源: {favorite.source}\n"
+    
+    if favorite.creator:
+        msg += f"作者: {favorite.creator}\n"
+    
+    msg += f"收藏时间: {favorite.created_at.strftime('%Y-%m-%d %H:%M:%S')}"
+    
+    await view_favorite_cmd.send(msg)
 
 
 @delete_favorite_cmd.handle()
@@ -187,24 +240,41 @@ async def handle_delete_favorite(event: Event, result: CommandResult, session: U
     # 获取跨平台用户标识
     platform = session.adapter
     user_id = session.user.id
+    composite_id = f"{platform}:{user_id}"
     
     # 检查黑白名单
     if not check_permission(session):
-        logger.debug(f"用户 {platform}:{user_id} 因黑白名单限制被拒绝删除收藏")
+        logger.debug(f"用户 {composite_id} 因黑白名单限制被拒绝访问收藏功能")
         return
     
-    # 获取序号参数
+    # 检查频率限制
+    if not await rate_limiter.check_rate_limit(composite_id, delete_favorite_cmd.send):
+        return
+    
+    # 获取收藏序号参数
     index = 0
-    if result.result and "index" in result.result.main_args:
-        index = result.result.main_args["index"]
-        
-    # 索引转换（用户输入是从1开始，程序内部是从0开始）
-    index = max(1, index) - 1
+    if result.result and result.result.main_args and (index_arg := result.result.main_args.get("index")):
+        index = int(index_arg)
+    
+    if index <= 0:
+        await delete_favorite_cmd.send("收藏序号必须大于0")
+        return
+    
+    # 获取用户收藏列表
+    favorites = favorite_manager.get_favorites(platform, user_id)
+    
+    if not favorites:
+        await delete_favorite_cmd.send("您还没有收藏任何一言")
+        return
+    
+    if index > len(favorites):
+        await delete_favorite_cmd.send(f"序号超出范围，您只有 {len(favorites)} 条收藏")
+        return
     
     # 删除收藏
-    success = favorite_manager.remove_favorite(platform, user_id, index)
+    favorite = favorites[index-1]
+    short_content = favorite.content[:20] + "..." if len(favorite.content) > 20 else favorite.content
+    favorite_manager.remove_favorite(platform, user_id, index-1)
+    logger.info(f"用户 {composite_id} 删除了收藏: {short_content}")
     
-    if success:
-        await delete_favorite_cmd.send(f"已删除序号为 {index + 1} 的收藏")
-    else:
-        await delete_favorite_cmd.send(f"删除失败，未找到序号为 {index + 1} 的收藏") 
+    await delete_favorite_cmd.send(f"收藏已删除: {short_content}") 

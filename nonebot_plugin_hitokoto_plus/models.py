@@ -60,14 +60,13 @@ class HitokotoFavorite:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "HitokotoFavorite":
         """从字典创建实例"""
-        created_at = datetime.fromisoformat(data["created_at"]) if "created_at" in data else None
         return cls(
             content=data["content"],
             uuid=data["uuid"],
             type_name=data["type_name"],
             source=data["source"],
             creator=data["creator"],
-            created_at=created_at
+            created_at=datetime.fromisoformat(created_at_str) if (created_at_str := data.get("created_at")) else None
         )
 
 
@@ -99,10 +98,11 @@ class FavoriteManager:
             with open(self.data_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
             
-            for user_id, favorites in data.items():
-                self._favorites[user_id] = [
-                    HitokotoFavorite.from_dict(fav) for fav in favorites
-                ]
+            # 使用字典推导式加载收藏数据
+            self._favorites = {
+                user_id: [HitokotoFavorite.from_dict(fav) for fav in favorites]
+                for user_id, favorites in data.items()
+            }
             
             logger.debug(f"成功加载收藏数据: {len(self._favorites)}个用户")
         except Exception as e:
@@ -111,9 +111,11 @@ class FavoriteManager:
     def _save_data(self) -> None:
         """保存收藏数据"""
         try:
-            data: Dict[str, List[Dict[str, Any]]] = {}
-            for user_id, favorites in self._favorites.items():
-                data[user_id] = [fav.to_dict() for fav in favorites]
+            # 使用字典推导式创建要保存的数据
+            data = {
+                user_id: [fav.to_dict() for fav in favorites]
+                for user_id, favorites in self._favorites.items()
+            }
             
             # 确保父目录存在
             self.data_file.parent.mkdir(parents=True, exist_ok=True)
@@ -124,6 +126,8 @@ class FavoriteManager:
             logger.debug("收藏数据保存成功")
         except Exception as e:
             logger.error(f"保存收藏数据失败: {e}")
+            # 抛出异常以便调用者感知到错误
+            raise IOError(f"保存收藏数据失败") from e
     
     def set_last_hitokoto(self, platform: str, user_id: str, hitokoto_data: Dict[str, Any]) -> None:
         """
@@ -146,42 +150,60 @@ class FavoriteManager:
             creator=hitokoto_data.get("from_who_plain", "无")
         )
     
-    def add_favorite(self, platform: str, user_id: str) -> Optional[HitokotoFavorite]:
+    def get_last_hitokoto(self, platform: str, user_id: str) -> Optional[HitokotoFavorite]:
         """
-        添加收藏
+        获取最后一次获取的一言
         
         参数:
             platform: 平台标识
             user_id: 用户ID
             
         返回:
-            Optional[HitokotoFavorite]: 添加成功返回收藏对象，已收藏过或无最后一言则返回None
+            Optional[HitokotoFavorite]: 上次获取的一言对象，不存在则返回None
+        """
+        # 创建复合ID
+        composite_id = f"{platform}:{user_id}"
+        return self._last_hitokoto.get(composite_id)
+    
+    def is_favorite_exists(self, platform: str, user_id: str, uuid: str) -> bool:
+        """
+        检查一言是否已经收藏
+        
+        参数:
+            platform: 平台标识
+            user_id: 用户ID
+            uuid: 一言UUID
+            
+        返回:
+            bool: 是否已收藏
+        """
+        # 创建复合ID
+        composite_id = f"{platform}:{user_id}"
+        favorites = self._favorites.get(composite_id, [])
+        
+        # 使用命名表达式和any更简洁地检查是否存在
+        return any(fav.uuid == uuid for fav in favorites)
+    
+    def add_favorite(self, platform: str, user_id: str, hitokoto: HitokotoFavorite) -> None:
+        """
+        添加收藏
+        
+        参数:
+            platform: 平台标识
+            user_id: 用户ID
+            hitokoto: 要收藏的一言
         """
         # 创建复合ID
         composite_id = f"{platform}:{user_id}"
         
-        if composite_id not in self._last_hitokoto:
-            return None
-        
-        # 获取最后一次的一言
-        favorite = self._last_hitokoto[composite_id]
-        
-        # 确保用户存在收藏列表
-        if composite_id not in self._favorites:
-            self._favorites[composite_id] = []
-        
-        # 检查是否已经收藏过
-        for existing in self._favorites[composite_id]:
-            if existing.uuid == favorite.uuid:
-                return None  # 已收藏过，返回None
-        
-        # 添加到收藏列表
-        self._favorites[composite_id].append(favorite)
+        # 如果用户没有收藏列表，创建新列表；否则添加到现有列表
+        if composite_id in self._favorites:
+            self._favorites[composite_id].append(hitokoto)
+        else:
+            self._favorites[composite_id] = [hitokoto]
         
         # 保存数据
         self._save_data()
-        
-        return favorite
     
     def get_favorites(self, platform: str, user_id: str) -> List[HitokotoFavorite]:
         """
@@ -213,9 +235,8 @@ class FavoriteManager:
         # 创建复合ID
         composite_id = f"{platform}:{user_id}"
         favorites = self._favorites.get(composite_id, [])
-        if 0 <= index < len(favorites):
-            return favorites[index]
-        return None
+        # 使用条件表达式简化逻辑
+        return favorites[index] if 0 <= index < len(favorites) else None
     
     def remove_favorite(self, platform: str, user_id: str, index: int) -> bool:
         """
@@ -232,12 +253,15 @@ class FavoriteManager:
         # 创建复合ID
         composite_id = f"{platform}:{user_id}"
         favorites = self._favorites.get(composite_id, [])
+        
+        # 使用if-else引入逻辑
         if 0 <= index < len(favorites):
             favorites.pop(index)
             # 保存数据
             self._save_data()
             return True
-        return False
+        else:
+            return False
 
 
 # 创建全局收藏管理器实例
