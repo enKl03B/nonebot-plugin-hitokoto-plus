@@ -3,13 +3,9 @@ import time
 from datetime import datetime
 
 from nonebot.log import logger
-from nonebot import get_plugin_config
 from nonebot_plugin_apscheduler import scheduler
 
-from .config import Config
-
-# 获取插件配置
-plugin_config = get_plugin_config(Config)
+from .config import Config, plugin_config
 
 
 class RateLimiter:
@@ -32,7 +28,7 @@ class RateLimiter:
         scheduler.add_job(
             self._cleanup_cooldown_records,
             "interval", 
-            seconds=plugin_config.HITP_COOLDOWN_CLEANUP_INTERVAL,
+            seconds=plugin_config.hitp_cooldown_cleanup_interval,
             id="hitokoto_cooldown_cleanup",
             replace_existing=True
         )
@@ -48,7 +44,7 @@ class RateLimiter:
         # 直接在列表创建时添加过期的用户ID
         expired_users = [
             user_id for user_id, last_time in self._last_call_time.items()
-            if current_time - last_time > plugin_config.HITP_USER_RETENTION_TIME
+            if current_time - last_time > plugin_config.hitp_user_retention_time
         ]
         
         if expired_users:
@@ -76,13 +72,13 @@ class RateLimiter:
         current_time_str = datetime.fromtimestamp(current_time).strftime("%Y-%m-%d %H:%M:%S")
         
         # 检查是否在冷却中
-        if composite_id in self._last_call_time and (elapsed := current_time - self._last_call_time[composite_id]) < plugin_config.HITP_CD:
+        if composite_id in self._last_call_time and (elapsed := current_time - self._last_call_time[composite_id]) < plugin_config.hitp_cd:
             last_time_str = datetime.fromtimestamp(self._last_call_time[composite_id]).strftime("%Y-%m-%d %H:%M:%S")
             
-            logger.debug(f"用户 {composite_id} 的冷却检查: 当前时间={current_time_str}, 上次调用={last_time_str}, 已过时间={elapsed:.2f}秒, 冷却时间={plugin_config.HITP_CD}秒")
+            logger.debug(f"用户 {composite_id} 的冷却检查: 当前时间={current_time_str}, 上次调用={last_time_str}, 已过时间={elapsed:.2f}秒, 冷却时间={plugin_config.hitp_cd}秒")
             
             # 计算剩余冷却时间，确保至少为1秒
-            remaining = max(1, round(plugin_config.HITP_CD - elapsed))
+            remaining = max(1, round(plugin_config.hitp_cd - elapsed))
             logger.debug(f"用户 {composite_id} 仍在冷却中，剩余时间: {remaining}秒")
             
             # 如果提供了发送函数，则发送冷却提示
@@ -120,8 +116,8 @@ class RateLimiter:
         """
         current_time = time.time()
         
-        if composite_id in self._last_call_time and (elapsed := current_time - self._last_call_time[composite_id]) < plugin_config.HITP_CD:
-            return plugin_config.HITP_CD - elapsed
+        if composite_id in self._last_call_time and (elapsed := current_time - self._last_call_time[composite_id]) < plugin_config.hitp_cd:
+            return plugin_config.hitp_cd - elapsed
                 
         return None
 

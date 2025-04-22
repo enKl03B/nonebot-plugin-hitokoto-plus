@@ -1,6 +1,6 @@
 [project]
 name = "nonebot-plugin-hitokoto-plus"
-version = "0.3.3"
+version = "0.3.4"
 description = "（可能是）更好的一言插件！"
 authors = [
     {name = "enKl03B", email = "enKl03B@163.com"},

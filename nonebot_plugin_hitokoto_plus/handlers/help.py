@@ -1,13 +1,10 @@
 from typing import List, Set
 
 from nonebot.log import logger
-from nonebot import get_plugin_config, get_driver
+from nonebot import get_driver
 from nonebot_plugin_alconna import on_alconna, Alconna, CommandResult, Subcommand
 
-from ..config import Config
-
-# 获取插件配置
-plugin_config = get_plugin_config(Config)
+from ..config import Config, plugin_config
 
 # 获取全局配置
 global_config = get_driver().config
@@ -84,7 +81,7 @@ def get_basic_help() -> str:
         f"- {cmd_prefix}一言 文学",
         "",
         "说明：",
-        f"- 调用冷却时间为 {plugin_config.HITP_CD} 秒",
+        f"- 调用冷却时间为 {plugin_config.hitp_cd} 秒",
         f"- 可使用 {cmd_prefix}一言帮助 类型 查看支持的类型"
     ]
     return "\n".join(help_text)
@@ -103,8 +100,8 @@ def get_favorite_help() -> str:
         f"5. {cmd_prefix}一言删除收藏 [序号] - 删除指定序号的收藏",
         "",
         "说明：",
-        f"- 在获取一言后 {plugin_config.HITP_FAVORITE_TIMEOUT} 秒内可以使用 {cmd_prefix}一言收藏 命令收藏",
-        f"- 收藏列表每页显示 {plugin_config.HITP_FAVORITE_LIST_LIMIT} 条记录",
+        f"- 在获取一言后 {plugin_config.hitp_favorite_timeout} 秒内可以使用 {cmd_prefix}一言收藏 命令收藏",
+        f"- 收藏列表每页显示 {plugin_config.hitp_favorite_list_limit} 条记录",
         "- 收藏序号从1开始计数"
     ]
     return "\n".join(help_text)
@@ -112,7 +109,7 @@ def get_favorite_help() -> str:
 
 def get_types_help() -> str:
     """获取类型帮助信息"""
-    type_map = plugin_config.HITP_TYPE_MAP
+    type_map = plugin_config.hitp_type_map
     
     help_text: List[str] = [
         "📋 一言支持的类型 📋",

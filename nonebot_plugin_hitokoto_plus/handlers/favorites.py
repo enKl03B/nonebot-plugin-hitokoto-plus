@@ -5,21 +5,18 @@ from datetime import datetime
 
 from nonebot.adapters import Event
 from nonebot.log import logger
-from nonebot import get_plugin_config, get_driver
+from nonebot import get_driver
 from nonebot_plugin_alconna import on_alconna, Args, Alconna, CommandResult, Option
 from nonebot_plugin_alconna.uniseg import UniMessage, Text, At
 
 # 直接导入模块
 from nonebot_plugin_uninfo import Uninfo
 
-from ..config import Config
+from ..config import Config, plugin_config
 from ..models import favorite_manager, HitokotoFavorite
 from .basic import check_permission
 from ..api import get_hitokoto, format_hitokoto, APIError
 from ..rate_limiter import rate_limiter
-
-# 获取插件配置
-plugin_config = get_plugin_config(Config)
 
 # 获取全局配置
 global_config = get_driver().config
@@ -97,7 +94,7 @@ async def handle_favorite_list(event: Event, result: CommandResult) -> None:
     favorites = favorite_manager.get_favorites(platform, user_id)
     
     # 计算总页数
-    page_size = plugin_config.HITP_FAVORITE_LIST_LIMIT
+    page_size = plugin_config.hitp_favorite_list_limit
     total_pages = max(1, math.ceil(len(favorites) / page_size))
     
     # 确保页码有效

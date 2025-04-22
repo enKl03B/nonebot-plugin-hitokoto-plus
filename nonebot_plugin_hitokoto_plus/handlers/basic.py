@@ -4,7 +4,7 @@ from datetime import datetime
 
 from nonebot.adapters import Event
 from nonebot.log import logger
-from nonebot import get_plugin_config, get_driver
+from nonebot import get_driver
 
 # 导入alconna
 from nonebot_plugin_alconna import on_alconna, Args, Alconna, CommandResult
@@ -13,12 +13,9 @@ from nonebot_plugin_uninfo import Uninfo
 from nonebot_plugin_apscheduler import scheduler
 
 from ..api import get_hitokoto, format_hitokoto, APIError
-from ..config import Config
+from ..config import Config, plugin_config
 from ..models import favorite_manager
 from ..rate_limiter import rate_limiter
-
-# 获取插件配置
-plugin_config = get_plugin_config(Config)
 
 # 创建一言命令
 hitokoto_cmd = on_alconna(
@@ -39,7 +36,7 @@ last_call_time: Dict[str, float] = {}
 def setup_scheduler():
     """设置定时任务"""
     # 使用 scheduler.scheduled_job 装饰器动态注册任务
-    @scheduler.scheduled_job("interval", seconds=plugin_config.HITP_COOLDOWN_CLEANUP_INTERVAL, id="hitokoto_cooldown_cleanup")
+    @scheduler.scheduled_job("interval", seconds=plugin_config.hitp_cooldown_cleanup_interval, id="hitokoto_cooldown_cleanup")
     async def cleanup_cooldown_records():
         """定时清理过期的冷却记录"""
         global last_call_time
@@ -53,7 +50,7 @@ def setup_scheduler():
         # 直接在列表创建时添加过期的用户ID
         expired_users = [
             user_id for user_id, last_time in last_call_time.items()
-            if current_time - last_time > plugin_config.HITP_USER_RETENTION_TIME
+            if current_time - last_time > plugin_config.hitp_user_retention_time
         ]
         
         if expired_users:
@@ -130,7 +127,7 @@ async def handle_hitokoto(event: Event, result: CommandResult) -> None:
         formatted_hitokoto = format_hitokoto(hitokoto_data)
         
         # 添加收藏提示
-        formatted_hitokoto += f"\n----------\n在 {plugin_config.HITP_FAVORITE_TIMEOUT} 秒内使用 /一言收藏 命令收藏该句"
+        formatted_hitokoto += f"\n----------\n在 {plugin_config.hitp_favorite_timeout} 秒内使用 /一言收藏 命令收藏该句"
         
         # 使用send方法发送消息，不使用finish
         await hitokoto_cmd.send(formatted_hitokoto)
@@ -173,11 +170,11 @@ def check_permission(session) -> bool:
         group_composite_id = ""
     
     # 判断模式：白名单模式还是黑名单模式
-    if plugin_config.HITP_USE_WHITELIST:
+    if plugin_config.hitp_use_whitelist:
         # 白名单模式：只有在列表中的用户/群组才能使用
-        return (composite_id in plugin_config.HITP_USER_LIST or 
-                (group_composite_id and group_composite_id in plugin_config.HITP_GROUP_LIST))
+        return (composite_id in plugin_config.hitp_user_list or 
+                (group_composite_id and group_composite_id in plugin_config.hitp_group_list))
     else:
         # 黑名单模式：不在列表中的用户/群组才能使用
-        return (composite_id not in plugin_config.HITP_USER_LIST and 
-                (not group_composite_id or group_composite_id not in plugin_config.HITP_GROUP_LIST)) 
+        return (composite_id not in plugin_config.hitp_user_list and 
+                (not group_composite_id or group_composite_id not in plugin_config.hitp_group_list)) 

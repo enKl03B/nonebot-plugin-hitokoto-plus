@@ -31,5 +31,5 @@ __plugin_meta__ = PluginMetadata(
     homepage="https://github.com/enKl03B/nonebot-plugin-hitokoto-plus",
     type="application",
     config=Config,
-    supported_adapters=inherit_supported_adapters("nonebot_plugin_alconna", "nonebot_plugin_uninfo", "nonebot_plugin_apscheduler"),
+    supported_adapters=inherit_supported_adapters("nonebot_plugin_alconna", "nonebot_plugin_uninfo"),
 ) 

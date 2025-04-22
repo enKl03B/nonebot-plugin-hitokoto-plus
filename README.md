@@ -91,7 +91,7 @@ pip install nonebot-plugin-hitokoto-plus
 在 NoneBot2 全局配置文件中（通常是 `.env` 或 `.env.prod` 文件）添加以下配置：
 
 > [!IMPORTANT]
-> 所有配置项都需要加上 `HITP_` 前缀，例如 `HITP_API_URL="https://v1.hitokoto.cn"`。下表中的名称已包含此前缀。
+> 所有配置项都需要加上 `hitp_` 前缀，例如 `hitp_api_url="https://v1.hitokoto.cn"`。下表中的名称已包含此前缀。
 
 > [!WARNING]
 > 指定的API地址必须支持与[一言开发者中心](https://developer.hitokoto.cn/sentence/#%E8%AF%B7%E6%B1%82%E5%8F%82%E6%95%B0)提供的请求参数和句子类型调用（返回格式化的JSON文本）
@@ -104,16 +104,16 @@ pip install nonebot-plugin-hitokoto-plus
 
 | 配置项 | 类型 | 必填 | 默认值 | 说明 | 示例 |
 |:-----:|:----:|:---:|:-----:|:----:|:----:|
-| HITP_API_URL | str | 否 | https://v1.hitokoto.cn | 一言API地址 |  |
-| HITP_DEFAULT_TYPE | str | 否 | None | 默认一言类型，为空则随机 | a |
-| HITP_CD | int | 否 | 3 | 调用冷却时间（秒） |  |
-| HITP_COOLDOWN_CLEANUP_INTERVAL | int | 否 | 360 | 冷却记录清理间隔（秒） |  |
-| HITP_USER_RETENTION_TIME | int | 否 | 720 | 用户记录保留时间（秒） |  |
-| HITP_FAVORITE_LIST_LIMIT | int | 否 | 10 | 收藏列表每页显示数量 |  |
-| HITP_FAVORITE_TIMEOUT | int | 否 | 30 | 收藏提示超时时间（秒） |  |
-| HITP_USE_WHITELIST | bool | 否 | False | 权限控制模式，True为白名单，False为黑名单 |  |
-| HITP_USER_LIST | list | 否 | [] | 用户ID列表，格式为"platform:user_id" | ["onebot11:12345678", "kook:87654321"] |
-| HITP_GROUP_LIST | list | 否 | [] | 群组ID列表，格式为"platform:group_id" | ["onebot11:87654321", "kook:12345678"] |
+| hitp_api_url | str | 否 | https://v1.hitokoto.cn | 一言API地址 |  |
+| hitp_default_type | str | 否 | None | 默认一言类型，为空则随机 | a |
+| hitp_cd | int | 否 | 3 | 调用冷却时间（秒） |  |
+| hitp_cooldown_cleanup_interval | int | 否 | 360 | 冷却记录清理间隔（秒） |  |
+| hitp_user_retention_time | int | 否 | 720 | 用户记录保留时间（秒） |  |
+| hitp_favorite_list_limit | int | 否 | 10 | 收藏列表每页显示数量 |  |
+| hitp_favorite_timeout | int | 否 | 30 | 收藏提示超时时间（秒） |  |
+| hitp_use_whitelist | bool | 否 | False | 权限控制模式，True为白名单，False为黑名单 |  |
+| hitp_user_list | list | 否 | [] | 用户ID列表，格式为"platform:user_id" | ["onebot11:12345678", "kook:87654321"] |
+| hitp_group_list | list | 否 | [] | 群组ID列表，格式为"platform:group_id" | ["onebot11:87654321", "kook:12345678"] |
 
 
 > [!NOTE]
@@ -146,6 +146,8 @@ pip install nonebot-plugin-hitokoto-plus
 
 
 ## 更新日志
+### 0.3.4
+更改配置项相关内容以符合规范
 
 ### 0.3.1-0.3.3
 优化
