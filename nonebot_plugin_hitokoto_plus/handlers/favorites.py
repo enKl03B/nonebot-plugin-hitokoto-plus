@@ -64,11 +64,8 @@ delete_favorite_cmd = on_alconna(
 
 
 @favorite_list_cmd.handle()
-async def handle_favorite_list(event: Event, result: CommandResult) -> None:
+async def handle_favorite_list(event: Event, result: CommandResult, session: Uninfo) -> None:
     """处理收藏列表命令"""
-    
-    # 获取会话
-    session = Uninfo.from_event(event)
     
     # 获取跨平台用户标识
     platform = session.adapter
@@ -143,11 +140,8 @@ async def handle_favorite_list(event: Event, result: CommandResult) -> None:
 
 
 @add_favorite_cmd.handle()
-async def handle_add_favorite(event: Event) -> None:
+async def handle_add_favorite(event: Event, session: Uninfo) -> None:
     """处理收藏命令"""
-    
-    # 获取会话
-    session = Uninfo.from_event(event)
     
     # 获取跨平台用户标识
     platform = session.adapter
@@ -183,11 +177,8 @@ async def handle_add_favorite(event: Event) -> None:
     
 
 @view_favorite_cmd.handle()
-async def handle_view_favorite(event: Event, result: CommandResult) -> None:
+async def handle_view_favorite(event: Event, result: CommandResult, session: Uninfo) -> None:
     """处理查看收藏命令"""
-    
-    # 获取会话
-    session = Uninfo.from_event(event)
     
     # 获取跨平台用户标识
     platform = session.adapter
@@ -243,11 +234,8 @@ async def handle_view_favorite(event: Event, result: CommandResult) -> None:
 
 
 @delete_favorite_cmd.handle()
-async def handle_delete_favorite(event: Event, result: CommandResult) -> None:
+async def handle_delete_favorite(event: Event, result: CommandResult, session: Uninfo) -> None:
     """处理删除收藏命令"""
-    
-    # 获取会话
-    session = Uninfo.from_event(event)
     
     # 获取跨平台用户标识
     platform = session.adapter

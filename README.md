@@ -146,8 +146,9 @@ pip install nonebot-plugin-hitokoto-plus
 
 
 ## 更新日志
-### 0.3.4
-更改配置项相关内容以符合规范
+
+### 0.3.5
+修复一个Bug
 
 ### 0.3.1-0.3.3
 优化

@@ -78,11 +78,8 @@ async def _():
 
 
 @hitokoto_cmd.handle()
-async def handle_hitokoto(event: Event, result: CommandResult) -> None:
+async def handle_hitokoto(event: Event, result: CommandResult, session: Uninfo) -> None:
     """处理一言命令"""
-    
-    # 获取会话信息
-    session = Uninfo.from_event(event)
     
     hitokoto_type: Optional[str] = None
     
