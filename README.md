@@ -112,8 +112,8 @@ pip install nonebot-plugin-hitokoto-plus
 | hitp_favorite_list_limit | int | 否 | 10 | 收藏列表每页显示数量 |  |
 | hitp_favorite_timeout | int | 否 | 30 | 收藏提示超时时间（秒） |  |
 | hitp_use_whitelist | bool | 否 | False | 权限控制模式，True为白名单，False为黑名单 |  |
-| hitp_user_list | list | 否 | [] | 用户ID列表，格式为"platform:user_id" | ["onebot11:12345678", "kook:87654321"] |
-| hitp_group_list | list | 否 | [] | 群组ID列表，格式为"platform:group_id" | ["onebot11:87654321", "kook:12345678"] |
+| hitp_user_list | list | 否 | [] | 黑/白名单用户ID列表，格式为"platform:user_id" | ["onebot11:12345678", "kook:87654321"] |
+| hitp_group_list | list | 否 | [] | 黑/白名单群组ID列表，格式为"platform:group_id" | ["onebot11:87654321", "kook:12345678"] |
 
 
 > [!NOTE]
